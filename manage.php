@@ -12,11 +12,12 @@ $tab = $_GET['tab'] ?? 'users';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'users' && isset($_POST['add_user_registry'])) {
     $oid = trim($_POST['oid']);
     $name = trim($_POST['name']);
+    $designation = trim($_POST['designation'] ?: '');
     $department = trim($_POST['department'] ?: '');
     $phone = trim($_POST['phone'] ?: '');
     if ($oid && $name) {
-        $stmt = $conn->prepare("INSERT IGNORE INTO user_registry (oid, name, department, phone) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("ssss", $oid, $name, $department, $phone);
+        $stmt = $conn->prepare("INSERT IGNORE INTO user_registry (oid, name, designation, department, phone) VALUES (?, ?, ?, ?, ?)");
+        $stmt->bind_param("sssss", $oid, $name, $designation, $department, $phone);
         $stmt->execute();
         if ($stmt->affected_rows > 0) {
             $success = "User '$name' added!";
@@ -46,11 +47,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'users' && isset($_POST['i
             while (($data = fgetcsv($handle)) !== false) {
                 $oid = trim($data[0] ?? '');
                 $name = trim($data[1] ?? '');
-                $dept = trim($data[2] ?? '');
-                $phone = trim($data[3] ?? '');
+                $desig = trim($data[2] ?? '');
+                $dept = trim($data[3] ?? '');
+                $phone = trim($data[4] ?? '');
                 if ($oid && $name) {
-                    $stmt = $conn->prepare("INSERT IGNORE INTO user_registry (oid, name, department, phone) VALUES (?, ?, ?, ?)");
-                    $stmt->bind_param("ssss", $oid, $name, $dept, $phone);
+                    $stmt = $conn->prepare("INSERT IGNORE INTO user_registry (oid, name, designation, department, phone) VALUES (?, ?, ?, ?, ?)");
+                    $stmt->bind_param("sssss", $oid, $name, $desig, $dept, $phone);
                     $stmt->execute();
                     if ($stmt->affected_rows > 0) $imported++; else $skipped++;
                 }
@@ -66,11 +68,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'users' && isset($_POST['i
                     if ($first) { $first = false; continue; }
                     $oid = trim($row[0] ?? '');
                     $name = trim($row[1] ?? '');
-                    $dept = trim($row[2] ?? '');
-                    $phone = trim($row[3] ?? '');
+                    $desig = trim($row[2] ?? '');
+                    $dept = trim($row[3] ?? '');
+                    $phone = trim($row[4] ?? '');
                     if ($oid && $name) {
-                        $stmt = $conn->prepare("INSERT IGNORE INTO user_registry (oid, name, department, phone) VALUES (?, ?, ?, ?)");
-                        $stmt->bind_param("ssss", $oid, $name, $dept, $phone);
+                        $stmt = $conn->prepare("INSERT IGNORE INTO user_registry (oid, name, designation, department, phone) VALUES (?, ?, ?, ?, ?)");
+                        $stmt->bind_param("sssss", $oid, $name, $desig, $dept, $phone);
                         $stmt->execute();
                         if ($stmt->affected_rows > 0) $imported++; else $skipped++;
                     }
@@ -215,16 +218,19 @@ $users = $conn->query("SELECT * FROM user_registry ORDER BY name");
             </div>
             <div class="card-body">
                 <form method="post" class="row g-2">
-                    <div class="col-md-3">
-                        <input type="text" name="oid" class="form-control" placeholder="OID (Office ID)" required>
+                    <div class="col-md-2">
+                        <input type="text" name="oid" class="form-control" placeholder="OID" required>
                     </div>
                     <div class="col-md-3">
                         <input type="text" name="name" class="form-control" placeholder="Full Name" required>
                     </div>
                     <div class="col-md-3">
-                        <input type="text" name="department" class="form-control" placeholder="Department">
+                        <input type="text" name="designation" class="form-control" placeholder="Designation">
                     </div>
                     <div class="col-md-2">
+                        <input type="text" name="department" class="form-control" placeholder="Department">
+                    </div>
+                    <div class="col-md-1">
                         <input type="text" name="phone" class="form-control" placeholder="Phone">
                     </div>
                     <div class="col-md-1">
@@ -251,7 +257,7 @@ $users = $conn->query("SELECT * FROM user_registry ORDER BY name");
                         </button>
                     </div>
                 </form>
-                <small class="text-muted">Format: OID, Name, Department, Phone (header row required)</small>
+                <small class="text-muted">Format: OID, Name, Designation, Department, Phone (header row required)</small>
             </div>
         </div>
 
@@ -263,7 +269,7 @@ $users = $conn->query("SELECT * FROM user_registry ORDER BY name");
                 <div class="table-responsive">
                     <table class="table table-bordered mb-0">
                         <thead class="table-secondary">
-                            <tr><th>OID</th><th>Name</th><th>Department</th><th>Phone</th><th>Action</th></tr>
+                            <tr><th>OID</th><th>Name</th><th>Designation</th><th>Department</th><th>Phone</th><th>Action</th></tr>
                         </thead>
                         <tbody>
                             <?php if ($users && $users->num_rows > 0): ?>
@@ -271,6 +277,7 @@ $users = $conn->query("SELECT * FROM user_registry ORDER BY name");
                                 <tr>
                                     <td><code><?= htmlspecialchars($u['oid']) ?></code></td>
                                     <td><?= htmlspecialchars($u['name']) ?></td>
+                                    <td><?= htmlspecialchars($u['designation'] ?: '-') ?></td>
                                     <td><?= htmlspecialchars($u['department'] ?: '-') ?></td>
                                     <td><?= htmlspecialchars($u['phone'] ?: '-') ?></td>
                                     <td>
@@ -284,7 +291,7 @@ $users = $conn->query("SELECT * FROM user_registry ORDER BY name");
                                 </tr>
                                 <?php endwhile; ?>
                             <?php else: ?>
-                                <tr><td colspan="5" class="text-center text-muted py-3">No users found.</td></tr>
+                                <tr><td colspan="6" class="text-center text-muted py-3">No users found.</td></tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
