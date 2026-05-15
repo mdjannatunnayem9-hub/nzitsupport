@@ -91,21 +91,8 @@ if ($selected_user) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
 </head>
-<body class="bg-light">
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand" href="index.php">NZIT Support</a>
-            <div class="d-flex align-items-center gap-2">
-                <span class="text-light">
-                    <i class="bi bi-shield-lock"></i> Admin: <?= htmlspecialchars($_SESSION['username']) ?>
-                </span>
-                <a href="admin.php" class="btn btn-outline-light btn-sm">
-                    <i class="bi bi-arrow-left"></i> Back to Admin
-                </a>
-                <a href="logout.php" class="btn btn-outline-light btn-sm">Logout</a>
-            </div>
-        </div>
-    </nav>
+<body class="bg-light" style="overflow-x:hidden;">
+    <?php require_once 'header.php'; ?>
 
     <div class="container py-4">
         <?php if (isset($success)): ?>
@@ -269,5 +256,6 @@ if ($selected_user) {
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <?php require_once 'footer.php'; ?>
 </body>
 </html>

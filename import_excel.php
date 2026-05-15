@@ -161,21 +161,8 @@ function calcRemainingDays($deadline) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
 </head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand" href="index.php">NZIT Support</a>
-            <div class="d-flex align-items-center gap-2">
-                <span class="text-light me-2">
-                    <i class="bi bi-shield-lock"></i> Admin: <?= htmlspecialchars($_SESSION['username']) ?>
-                </span>
-                <a href="nzsupportlist.php" class="btn btn-outline-light btn-sm">
-                    <i class="bi bi-arrow-left"></i> Back to List
-                </a>
-                <a href="logout.php" class="btn btn-outline-light btn-sm">Logout</a>
-            </div>
-        </div>
-    </nav>
+<body style="overflow-x:hidden;">
+    <?php require_once 'header.php'; ?>
 
     <div class="container py-4">
         <div class="row justify-content-center">
@@ -188,13 +175,34 @@ function calcRemainingDays($deadline) {
                         <div id="alertBox"></div>
 
                         <div class="alert alert-info">
-                            <strong>Instructions:</strong>
+                            <strong>Import Instructions:</strong>
                             <ul class="mb-0">
                                 <li>Upload an <code>.xlsx</code> or <code>.csv</code> file</li>
-                                <li>First row must contain column headers</li>
-                                <li>Supported columns: <strong>SupID, Status, User Name, Device, Support Person, Start Date, Description, Remarks, Dead Line, Remaining Days, End Date</strong></li>
-                                <li>Only <strong>SupID</strong> and <strong>User Name</strong> are required</li>
+                                <li>First row must contain column headers — system automatically detects and maps to database fields</li>
+                                <li>Only <strong>SupID</strong> or <strong>User Name</strong> column is required; rest are optional</li>
                             </ul>
+                            <hr>
+                            <strong class="d-block mb-1">Database Column Mapping:</strong>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-bordered mb-0" style="font-size:0.85rem;">
+                                    <thead class="table-dark">
+                                        <tr><th>Excel Header (case-insensitive)</th><th>Database Field</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr><td>supid, sup_id</td><td><code>sup_id</code></td></tr>
+                                        <tr><td>status</td><td><code>status</code></td></tr>
+                                        <tr><td>user name, username, user_name</td><td><code>user_name</code></td></tr>
+                                        <tr><td>device</td><td><code>device</code></td></tr>
+                                        <tr><td>support person, support_person</td><td><code>support_person</code></td></tr>
+                                        <tr><td>start date, start_date</td><td><code>start_date</code></td></tr>
+                                        <tr><td>description</td><td><code>description</code></td></tr>
+                                        <tr><td>remarks</td><td><code>remarks</code></td></tr>
+                                        <tr><td>dead line, deadline</td><td><code>deadline</code></td></tr>
+                                        <tr><td>remaining days, remaining_days</td><td><code>remaining_days</code></td></tr>
+                                        <tr><td>end date, end_date</td><td><code>end_date</code></td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
 
                         <form id="importForm" enctype="multipart/form-data">
@@ -253,5 +261,6 @@ function calcRemainingDays($deadline) {
     });
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <?php require_once 'footer.php'; ?>
 </body>
 </html>

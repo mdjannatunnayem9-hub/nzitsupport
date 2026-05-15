@@ -6,6 +6,20 @@ if (!isLoggedIn() || !isAdmin()) {
     exit;
 }
 
+// Export users to CSV
+if (isset($_GET['export_users'])) {
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename=user_registry.csv');
+    $out = fopen('php://output', 'w');
+    fputcsv($out, ['OID', 'Name', 'Designation', 'Department', 'Phone']);
+    $rows = $conn->query("SELECT oid, name, designation, department, phone FROM user_registry ORDER BY name");
+    while ($r = $rows->fetch_assoc()) {
+        fputcsv($out, [$r['oid'], $r['name'], $r['designation'] ?? '', $r['department'] ?? '', $r['phone'] ?? '']);
+    }
+    fclose($out);
+    exit;
+}
+
 $tab = $_GET['tab'] ?? 'users';
 
 // Handle add user
@@ -34,6 +48,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'users' && isset($_POST['d
     $id = intval($_POST['id']);
     $conn->query("DELETE FROM user_registry WHERE id=$id");
     $success = 'User deleted!';
+}
+
+// Handle update user
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'users' && isset($_POST['update_user_registry'])) {
+    $uid = intval($_POST['uid']);
+    $oid = trim($_POST['oid']);
+    $name = trim($_POST['name']);
+    $designation = trim($_POST['designation'] ?: '');
+    $department = trim($_POST['department'] ?: '');
+    $phone = trim($_POST['phone'] ?: '');
+    if ($uid && $oid && $name) {
+        $stmt = $conn->prepare("UPDATE user_registry SET oid=?, name=?, designation=?, department=?, phone=? WHERE id=?");
+        $stmt->bind_param("sssssi", $oid, $name, $designation, $department, $phone, $uid);
+        $stmt->execute();
+        $success = "User '$name' updated!";
+    } else {
+        $error = 'OID and Name are required.';
+    }
 }
 
 // Handle approve user request
@@ -190,21 +222,8 @@ $pending_requests = $conn->query("SELECT * FROM user_requests WHERE status='pend
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
 </head>
-<body class="bg-light">
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand" href="index.php">NZIT Support</a>
-            <div class="d-flex align-items-center gap-2">
-                <span class="text-light">
-                    <i class="bi bi-shield-lock"></i> Admin: <?= htmlspecialchars($_SESSION['username']) ?>
-                </span>
-                <a href="admin.php" class="btn btn-outline-light btn-sm">
-                    <i class="bi bi-arrow-left"></i> Back to Admin
-                </a>
-                <a href="logout.php" class="btn btn-outline-light btn-sm">Logout</a>
-            </div>
-        </div>
-    </nav>
+<body class="bg-light" style="overflow-x:hidden;">
+    <?php require_once 'header.php'; ?>
 
     <div class="container py-4">
         <?php if (isset($success)): ?>
@@ -277,9 +296,14 @@ $pending_requests = $conn->query("SELECT * FROM user_requests WHERE status='pend
                         <input type="file" name="user_excel" class="form-control" accept=".xlsx,.csv" required>
                     </div>
                     <div class="col-md-2">
-                        <button type="submit" name="import_users" class="btn btn-success">
+                        <button type="submit" name="import_users" class="btn btn-success w-100">
                             <i class="bi bi-upload"></i> Import
                         </button>
+                    </div>
+                    <div class="col-md-2">
+                        <a href="?tab=users&export_users=1" class="btn btn-info w-100">
+                            <i class="bi bi-download"></i> Export
+                        </a>
                     </div>
                 </form>
                 <small class="text-muted">Format: OID, Name, Designation, Department, Phone (header row required)</small>
@@ -306,12 +330,17 @@ $pending_requests = $conn->query("SELECT * FROM user_requests WHERE status='pend
                                     <td><?= htmlspecialchars($u['department'] ?: '-') ?></td>
                                     <td><?= htmlspecialchars($u['phone'] ?: '-') ?></td>
                                     <td>
-                                        <form method="post" onsubmit="return confirm('Delete this user?')">
-                                            <input type="hidden" name="id" value="<?= $u['id'] ?>">
-                                            <button type="submit" name="delete_user_registry" class="btn btn-danger btn-sm">
-                                                <i class="bi bi-trash"></i>
+                                        <div class="d-flex gap-1">
+                                            <button class="btn btn-warning btn-sm" onclick="editUser(<?= $u['id'] ?>, '<?= htmlspecialchars($u['oid'], ENT_QUOTES) ?>', '<?= htmlspecialchars($u['name'], ENT_QUOTES) ?>', '<?= htmlspecialchars($u['designation'] ?? '', ENT_QUOTES) ?>', '<?= htmlspecialchars($u['department'] ?? '', ENT_QUOTES) ?>', '<?= htmlspecialchars($u['phone'] ?? '', ENT_QUOTES) ?>')">
+                                                <i class="bi bi-pencil"></i>
                                             </button>
-                                        </form>
+                                            <form method="post" onsubmit="return confirm('Delete this user?')">
+                                                <input type="hidden" name="id" value="<?= $u['id'] ?>">
+                                                <button type="submit" name="delete_user_registry" class="btn btn-danger btn-sm">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </form>
+                                        </div>
                                     </td>
                                 </tr>
                                 <?php endwhile; ?>
@@ -334,7 +363,7 @@ $pending_requests = $conn->query("SELECT * FROM user_requests WHERE status='pend
                 <div class="table-responsive">
                     <table class="table table-bordered mb-0">
                         <thead class="table-warning">
-                            <tr><th>OID</th><th>Name</th><th>Designation</th><th>Department</th><th>Phone</th><th>Support Person</th><th>Requested By</th><th>Action</th></tr>
+                            <tr><th>OID</th><th>Name</th><th>Designation</th><th>Department</th><th>Phone</th><th>Requested By</th><th>Action</th></tr>
                         </thead>
                         <tbody>
                             <?php while ($rq = $pending_requests->fetch_assoc()): ?>
@@ -344,7 +373,6 @@ $pending_requests = $conn->query("SELECT * FROM user_requests WHERE status='pend
                                 <td><?= htmlspecialchars($rq['designation'] ?: '-') ?></td>
                                 <td><?= htmlspecialchars($rq['department'] ?: '-') ?></td>
                                 <td><?= htmlspecialchars($rq['phone'] ?: '-') ?></td>
-                                <td><?= htmlspecialchars($rq['support_person'] ?: '-') ?></td>
                                 <td><?= htmlspecialchars($rq['requested_by']) ?></td>
                                 <td>
                                     <form method="post" style="display:inline">
@@ -520,6 +548,62 @@ $pending_requests = $conn->query("SELECT * FROM user_requests WHERE status='pend
         <?php endif; ?>
     </div>
 
+    <!-- Edit User Modal -->
+    <div class="modal fade" id="editUserModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post">
+                    <div class="modal-header bg-warning text-dark">
+                        <h5 class="modal-title"><i class="bi bi-pencil"></i> Edit User</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" name="uid" id="editUid">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">OID <span class="text-danger">*</span></label>
+                                <input type="text" name="oid" id="editOid" class="form-control" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Name <span class="text-danger">*</span></label>
+                                <input type="text" name="name" id="editName" class="form-control" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Designation</label>
+                                <input type="text" name="designation" id="editDesignation" class="form-control">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Department</label>
+                                <input type="text" name="department" id="editDepartment" class="form-control">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Phone</label>
+                                <input type="text" name="phone" id="editPhone" class="form-control">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" name="update_user_registry" class="btn btn-warning"><i class="bi bi-check-lg"></i> Update</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    function editUser(id, oid, name, designation, department, phone) {
+        document.getElementById('editUid').value = id;
+        document.getElementById('editOid').value = oid;
+        document.getElementById('editName').value = name;
+        document.getElementById('editDesignation').value = designation;
+        document.getElementById('editDepartment').value = department;
+        document.getElementById('editPhone').value = phone;
+        var modal = new bootstrap.Modal(document.getElementById('editUserModal'));
+        modal.show();
+    }
+    </script>
+    <?php require_once 'footer.php'; ?>
 </body>
 </html>
