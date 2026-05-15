@@ -171,6 +171,11 @@ $search = trim($_GET['search'] ?? '');
 $raw_status = $_GET['status'] ?? [];
 $selected_statuses = is_array($raw_status) ? $raw_status : [];
 
+// On initial load (no status in URL), use defaults matching checkboxes
+if (empty($selected_statuses) && !array_key_exists('status', $_GET)) {
+    $selected_statuses = ['Running', 'Pending', 'Analyzing', 'On Hold'];
+}
+
 $where = [];
 $params = [];
 $types = '';
