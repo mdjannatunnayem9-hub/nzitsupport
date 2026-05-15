@@ -5,6 +5,15 @@ require_once 'config.php';
 $statuses = $conn->query("SELECT * FROM statuses ORDER BY sort_order");
 $devices = $conn->query("SELECT * FROM devices ORDER BY name");
 
+// Load user registry for detail row
+$user_registry = [];
+$reg_res = $conn->query("SELECT * FROM user_registry");
+if ($reg_res) {
+    while ($r = $reg_res->fetch_assoc()) {
+        $user_registry[$r['name']] = $r;
+    }
+}
+
 // Build lookup arrays from DB
 $status_order = []; $colors = []; $text_colors = [];
 if ($statuses && $statuses->num_rows > 0) {
@@ -411,10 +420,29 @@ if (isset($_SESSION['username'])) {
                                         <td colspan="5">
                                             <div class="detail-inner" id="detail-inner-<?= $row['id'] ?>">
                                                 <div class="p-3 bg-light">
+                                                <?php
+                                                $uinfo = $user_registry[$row['user_name']] ?? null;
+                                                $u_oid = $uinfo['oid'] ?? null;
+                                                $u_desig = $uinfo['designation'] ?? null;
+                                                $u_dept = $uinfo['department'] ?? null;
+                                                $u_phone = $uinfo['phone'] ?? null;
+                                                ?>
                                                 <div class="row g-3">
                                                     <div class="col-md-3">
                                                         <small class="text-muted d-block">Support Person</small>
                                                         <strong><?= htmlspecialchars($row['support_person']) ?: '-' ?></strong>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <small class="text-muted d-block">OID</small>
+                                                        <strong><?= $u_oid ? htmlspecialchars($u_oid) : '-' ?></strong>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <small class="text-muted d-block">Designation</small>
+                                                        <strong><?= $u_desig ? htmlspecialchars($u_desig) : '-' ?></strong>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <small class="text-muted d-block">Department</small>
+                                                        <strong><?= $u_dept ? htmlspecialchars($u_dept) : '-' ?></strong>
                                                     </div>
                                                     <div class="col-md-3">
                                                         <small class="text-muted d-block">Start Date</small>
@@ -423,6 +451,17 @@ if (isset($_SESSION['username'])) {
                                                     <div class="col-md-3">
                                                         <small class="text-muted d-block">Dead Line</small>
                                                         <strong><?= htmlspecialchars($row['deadline']) ?: '-' ?></strong>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <small class="text-muted d-block">Phone</small>
+                                                        <?php if ($u_phone): ?>
+                                                            <strong>
+                                                                <a href="https://wa.me/<?= preg_replace('/[^0-9]/', '', $u_phone) ?>" target="_blank" class="text-success me-2" title="WhatsApp" style="font-size:1.2rem;"><i class="bi bi-whatsapp"></i></a>
+                                                                <a href="tel:<?= htmlspecialchars($u_phone) ?>" class="text-primary" title="Call" style="font-size:1.2rem;"><i class="bi bi-telephone"></i></a>
+                                                            </strong>
+                                                        <?php else: ?>
+                                                            <strong>-</strong>
+                                                        <?php endif; ?>
                                                     </div>
                                                     <div class="col-md-3">
                                                         <small class="text-muted d-block">Remaining Days</small>
@@ -436,7 +475,7 @@ if (isset($_SESSION['username'])) {
                                                         <small class="text-muted d-block">End Date</small>
                                                         <strong><?= htmlspecialchars($row['end_date']) ?: '-' ?></strong>
                                                     </div>
-                                                    <div class="col-md-6">
+                                                    <div class="col-md-9">
                                                         <small class="text-muted d-block">Description</small>
                                                         <strong><?= nl2br(htmlspecialchars($row['description'])) ?: '-' ?></strong>
                                                     </div>
@@ -888,10 +927,10 @@ if (isset($_SESSION['username'])) {
 
         const detailRow = document.querySelector('.detail-row[data-id="' + id + '"]');
         const supportPerson = detailRow.querySelector('.col-md-3:nth-of-type(1) strong')?.textContent || '-';
-        const startDate = detailRow.querySelector('.col-md-3:nth-of-type(2) strong')?.textContent || '-';
-        const deadline = detailRow.querySelector('.col-md-3:nth-of-type(3) strong')?.textContent || '-';
-        const endDate = detailRow.querySelector('.col-md-3:nth-of-type(5) strong')?.textContent || '-';
-        const description = detailRow.querySelector('.col-md-6 strong')?.textContent || '-';
+        const startDate = detailRow.querySelector('.col-md-3:nth-of-type(5) strong')?.textContent || '-';
+        const deadline = detailRow.querySelector('.col-md-3:nth-of-type(6) strong')?.textContent || '-';
+        const endDate = detailRow.querySelector('.col-md-3:nth-of-type(9) strong')?.textContent || '-';
+        const description = detailRow.querySelector('.col-md-9 strong')?.textContent || '-';
         const remainingDaysBadge = detailRow.querySelector('.badge');
 
         let badgeHtml = '-';
