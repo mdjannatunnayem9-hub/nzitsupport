@@ -1,6 +1,22 @@
 <?php
 require_once 'config.php';
 
+// Load statuses and devices from DB
+$statuses = $conn->query("SELECT * FROM statuses ORDER BY sort_order");
+$devices = $conn->query("SELECT * FROM devices ORDER BY name");
+
+// Build lookup arrays from DB
+$status_order = []; $colors = []; $text_colors = [];
+if ($statuses && $statuses->num_rows > 0) {
+    $statuses->data_seek(0);
+    while ($s = $statuses->fetch_assoc()) {
+        $status_order[$s['name']] = $s['abbreviation'] ?: substr($s['name'], 0, 2);
+        $colors[$s['name']] = $s['color'];
+        $text_colors[$s['name']] = $s['text_color'];
+    }
+    $statuses->data_seek(0);
+}
+
 // Page permission check
 if (!isPagePublic('nzsupportlist')) {
     requireLogin();
@@ -265,13 +281,13 @@ if (isset($_SESSION['username'])) {
                         </div>
                         <div class="collapse mt-2" id="statusFilterCollapse">
                             <div class="d-flex flex-wrap align-items-center gap-2 p-2 border rounded bg-light">
-                                <label class="form-check-label small" style="cursor:pointer"><input type="checkbox" class="form-check-input status-filter" value="Running" checked onchange="filterTable()"> Running</label>
-                                <label class="form-check-label small" style="cursor:pointer"><input type="checkbox" class="form-check-input status-filter" value="Pending" checked onchange="filterTable()"> Pending</label>
-                                <label class="form-check-label small" style="cursor:pointer"><input type="checkbox" class="form-check-input status-filter" value="Analyzing" checked onchange="filterTable()"> Analyzing</label>
-                                <label class="form-check-label small" style="cursor:pointer"><input type="checkbox" class="form-check-input status-filter" value="On Hold" checked onchange="filterTable()"> On Hold</label>
-                                <label class="form-check-label small" style="cursor:pointer"><input type="checkbox" class="form-check-input status-filter" value="Complete" onchange="filterTable()"> Complete</label>
-                                <label class="form-check-label small" style="cursor:pointer"><input type="checkbox" class="form-check-input status-filter" value="SOP" onchange="filterTable()"> SOP</label>
-                                <label class="form-check-label small" style="cursor:pointer"><input type="checkbox" class="form-check-input status-filter" value="Abandon" onchange="filterTable()"> Abandon</label>
+                                <?php foreach ($status_order as $st_name => $st_abbr):
+                                    $is_complete = ($st_name === 'Complete'); ?>
+                                    <label class="form-check-label small" style="cursor:pointer">
+                                        <input type="checkbox" class="form-check-input status-filter" value="<?= $st_name ?>" <?= !$is_complete ? 'checked' : '' ?> onchange="filterTable()">
+                                        <?= $st_name ?>
+                                    </label>
+                                <?php endforeach; ?>
                             </div>
                         </div>
                     </div>
@@ -280,11 +296,6 @@ if (isset($_SESSION['username'])) {
         </div>
 
         <!-- Status Counter -->
-        <?php
-        $status_order = ['Running'=>'R', 'Pending'=>'P', 'Analyzing'=>'An', 'On Hold'=>'OH', 'Complete'=>'C', 'SOP'=>'S', 'Abandon'=>'Ab'];
-        $colors = ['Running'=>'#ffc107','Pending'=>'#fd7e14','Analyzing'=>'#0dcaf0','On Hold'=>'#dc3545','Complete'=>'#198754','SOP'=>'#6f42c1','Abandon'=>'#212529'];
-        $text_colors = ['Running'=>'#000','Pending'=>'#000','Analyzing'=>'#fff','On Hold'=>'#fff','Complete'=>'#fff','SOP'=>'#fff','Abandon'=>'#fff'];
-        ?>
         <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
             <?php foreach ($status_order as $status => $abbr): ?>
                 <?php $cnt = $status_counts[$status] ?? 0; ?>
@@ -315,17 +326,9 @@ if (isset($_SESSION['username'])) {
                                             <strong class="text-primary"><?= htmlspecialchars($row['sup_id']) ?></strong>
                                         </td>
                                         <?php
-                                        $bg = match(trim($row['status'])) {
-                                            'Complete' => '#198754',
-                                            'Running' => '#ffc107',
-                                            'Analyzing' => '#0dcaf0',
-                                            'SOP' => '#6f42c1',
-                                            'On Hold' => '#dc3545',
-                                            'Abandon' => '#212529',
-                                            'Pending' => '#fd7e14',
-                                            default => '#6c757d'
-                                        };
-                                        $tc = in_array($row['status'], ['Running', 'Pending']) ? '#000' : '#fff';
+                                        $st = trim($row['status']);
+                                        $bg = $colors[$st] ?? '#6c757d';
+                                        $tc = $text_colors[$st] ?? '#fff';
                                         ?>
                                         <td class="status-cell" style="cursor:pointer;background:<?= $bg ?>;color:<?= $tc ?>;">
                                             <span class="status-badge fw-bold"><?= htmlspecialchars($row['status']) ?></span>
@@ -340,12 +343,10 @@ if (isset($_SESSION['username'])) {
                                                     <input type="hidden" name="remarks" value="<?= htmlspecialchars($row['remarks']) ?>">
                                                     <input type="hidden" name="deadline" value="<?= htmlspecialchars($row['deadline']) ?>">
                                                     <select name="status" class="form-select form-select-sm status-select" onchange="this.form.submit()" style="background:<?= $bg ?>;color:<?= $tc ?>;">
-                                                        <option value="Pending" <?= $row['status']=='Pending'?'selected':'' ?>>Pending</option>
-                                                        <option value="Running" <?= $row['status']=='Running'?'selected':'' ?>>Running</option>
-                                                        <option value="Analyzing" <?= $row['status']=='Analyzing'?'selected':'' ?>>Analyzing</option>
-                                                        <option value="SOP" <?= $row['status']=='SOP'?'selected':'' ?>>SOP</option>
-                                                        <option value="On Hold" <?= $row['status']=='On Hold'?'selected':'' ?>>On Hold</option>
-                                                        <option value="Abandon" <?= $row['status']=='Abandon'?'selected':'' ?>>Abandon</option>
+                                                        <?php foreach ($status_order as $st_name => $st_abbr):
+                                                            if ($st_name === 'Complete') continue; ?>
+                                                            <option value="<?= $st_name ?>" <?= $row['status']==$st_name?'selected':'' ?>><?= $st_name ?></option>
+                                                        <?php endforeach; ?>
                                                     </select>
                                                 </form>
                                             <?php endif; ?>
@@ -504,12 +505,10 @@ if (isset($_SESSION['username'])) {
                             <div class="col-md-3">
                                 <label class="form-label">Status</label>
                                 <select name="status" class="form-select">
-                                    <option value="Pending">Pending</option>
-                                    <option value="Running">Running</option>
-                                    <option value="Analyzing">Analyzing</option>
-                                    <option value="SOP">SOP</option>
-                                    <option value="On Hold">On Hold</option>
-                                    <option value="Abandon">Abandon</option>
+                                    <?php foreach ($status_order as $st_name => $st_abbr):
+                                        if ($st_name === 'Complete') continue; ?>
+                                        <option value="<?= $st_name ?>"><?= $st_name ?></option>
+                                    <?php endforeach; ?>
                                 </select>
                             </div>
                             <div class="col-md-3">
@@ -524,30 +523,11 @@ if (isset($_SESSION['username'])) {
                                     <div class="dropdown-menu">
                                         <input type="text" class="form-control form-control-sm mb-1 dropdown-search" placeholder="&#x1F50D; Search device..." style="position:sticky;top:0;z-index:1;">
                                         <a class="dropdown-item" data-value="">-- Select --</a>
-                                        <a class="dropdown-item" data-value="Desktop">Desktop</a>
-                                        <a class="dropdown-item" data-value="Laptop">Laptop</a>
-                                        <a class="dropdown-item" data-value="Printer">Printer</a>
-                                        <a class="dropdown-item" data-value="Photocopy">Photocopy</a>
-                                        <a class="dropdown-item" data-value="Scanner">Scanner</a>
-                                        <a class="dropdown-item" data-value="Router">Router</a>
-                                        <a class="dropdown-item" data-value="Switch">Switch</a>
-                                        <a class="dropdown-item" data-value="Server">Server</a>
-                                        <a class="dropdown-item" data-value="UPS">UPS</a>
-                                        <a class="dropdown-item" data-value="Projector">Projector</a>
-                                        <a class="dropdown-item" data-value="Monitor">Monitor</a>
-                                        <a class="dropdown-item" data-value="Keyboard">Keyboard</a>
-                                        <a class="dropdown-item" data-value="Mouse">Mouse</a>
-                                        <a class="dropdown-item" data-value="Phone">Phone</a>
-                                        <a class="dropdown-item" data-value="Tablet">Tablet</a>
-                                        <a class="dropdown-item" data-value="CCTV">CCTV</a>
-                                        <a class="dropdown-item" data-value="Biometric">Biometric</a>
-                                        <a class="dropdown-item" data-value="Hub">Hub</a>
-                                        <a class="dropdown-item" data-value="Modem">Modem</a>
-                                        <a class="dropdown-item" data-value="Camera">Camera</a>
-                                        <a class="dropdown-item" data-value="Speaker">Speaker</a>
-                                        <a class="dropdown-item" data-value="Headset">Headset</a>
-                                        <a class="dropdown-item" data-value="Smartboard">Smartboard</a>
-                                        <a class="dropdown-item" data-value="Other">Other</a>
+                                        <?php if ($devices && $devices->num_rows > 0):
+                                            $devices->data_seek(0);
+                                            while ($d = $devices->fetch_assoc()): ?>
+                                            <a class="dropdown-item" data-value="<?= htmlspecialchars($d['name']) ?>"><?= htmlspecialchars($d['name']) ?></a>
+                                        <?php endwhile; endif; ?>
                                     </div>
                                 </div>
                             </div>
@@ -604,12 +584,10 @@ if (isset($_SESSION['username'])) {
                             <div class="col-md-3">
                                     <label class="form-label">Status</label>
                                     <select name="status" class="form-select">
-                                        <option value="Pending" <?= $edit_row['status']=='Pending'?'selected':'' ?>>Pending</option>
-                                        <option value="Running" <?= $edit_row['status']=='Running'?'selected':'' ?>>Running</option>
-                                        <option value="Analyzing" <?= $edit_row['status']=='Analyzing'?'selected':'' ?>>Analyzing</option>
-                                        <option value="SOP" <?= $edit_row['status']=='SOP'?'selected':'' ?>>SOP</option>
-                                        <option value="On Hold" <?= $edit_row['status']=='On Hold'?'selected':'' ?>>On Hold</option>
-                                        <option value="Abandon" <?= $edit_row['status']=='Abandon'?'selected':'' ?>>Abandon</option>
+                                        <?php foreach ($status_order as $st_name => $st_abbr):
+                                            if ($st_name === 'Complete') continue; ?>
+                                            <option value="<?= $st_name ?>" <?= $edit_row['status']==$st_name?'selected':'' ?>><?= $st_name ?></option>
+                                        <?php endforeach; ?>
                                     </select>
                                 </div>
                             <div class="col-md-3">
@@ -624,30 +602,11 @@ if (isset($_SESSION['username'])) {
                                     <div class="dropdown-menu">
                                         <input type="text" class="form-control form-control-sm mb-1 dropdown-search" placeholder="&#x1F50D; Search device..." style="position:sticky;top:0;z-index:1;">
                                         <a class="dropdown-item" data-value="">-- Select --</a>
-                                        <a class="dropdown-item" data-value="Desktop">Desktop</a>
-                                        <a class="dropdown-item" data-value="Laptop">Laptop</a>
-                                        <a class="dropdown-item" data-value="Printer">Printer</a>
-                                        <a class="dropdown-item" data-value="Photocopy">Photocopy</a>
-                                        <a class="dropdown-item" data-value="Scanner">Scanner</a>
-                                        <a class="dropdown-item" data-value="Router">Router</a>
-                                        <a class="dropdown-item" data-value="Switch">Switch</a>
-                                        <a class="dropdown-item" data-value="Server">Server</a>
-                                        <a class="dropdown-item" data-value="UPS">UPS</a>
-                                        <a class="dropdown-item" data-value="Projector">Projector</a>
-                                        <a class="dropdown-item" data-value="Monitor">Monitor</a>
-                                        <a class="dropdown-item" data-value="Keyboard">Keyboard</a>
-                                        <a class="dropdown-item" data-value="Mouse">Mouse</a>
-                                        <a class="dropdown-item" data-value="Phone">Phone</a>
-                                        <a class="dropdown-item" data-value="Tablet">Tablet</a>
-                                        <a class="dropdown-item" data-value="CCTV">CCTV</a>
-                                        <a class="dropdown-item" data-value="Biometric">Biometric</a>
-                                        <a class="dropdown-item" data-value="Hub">Hub</a>
-                                        <a class="dropdown-item" data-value="Modem">Modem</a>
-                                        <a class="dropdown-item" data-value="Camera">Camera</a>
-                                        <a class="dropdown-item" data-value="Speaker">Speaker</a>
-                                        <a class="dropdown-item" data-value="Headset">Headset</a>
-                                        <a class="dropdown-item" data-value="Smartboard">Smartboard</a>
-                                        <a class="dropdown-item" data-value="Other">Other</a>
+                                        <?php if ($devices && $devices->num_rows > 0):
+                                            $devices->data_seek(0);
+                                            while ($d = $devices->fetch_assoc()): ?>
+                                            <a class="dropdown-item" data-value="<?= htmlspecialchars($d['name']) ?>"><?= htmlspecialchars($d['name']) ?></a>
+                                        <?php endwhile; endif; ?>
                                     </div>
                                 </div>
                             </div>
