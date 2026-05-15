@@ -76,6 +76,27 @@ if (isset($_POST['add_remark_id']) && hasPagePermission('nzsupportlist', 'can_up
 }
 
 // Delete (GET)
+// Handle user request from Add modal
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_user'])) {
+    $req_oid = trim($_POST['req_oid'] ?? '');
+    $req_name = trim($_POST['req_name'] ?? '');
+    $req_desig = trim($_POST['req_desig'] ?? '');
+    $req_dept = trim($_POST['req_dept'] ?? '');
+    $req_phone = trim($_POST['req_phone'] ?? '');
+    $req_sp = trim($_POST['req_support_person'] ?? '');
+    $req_by = $_SESSION['username'] ?? 'Unknown';
+    if ($req_oid && $req_name) {
+        $stmt = $conn->prepare("INSERT INTO user_requests (oid, name, designation, department, phone, support_person, requested_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("sssssss", $req_oid, $req_name, $req_desig, $req_dept, $req_phone, $req_sp, $req_by);
+        $stmt->execute();
+        $req_success = "Request sent to admin for approval!";
+        $show_request_modal = true;
+    } else {
+        $req_error = 'OID and Name are required.';
+        $show_request_modal = true;
+    }
+}
+
 if (isset($_GET['delete']) && hasPagePermission('nzsupportlist', 'can_delete')) {
     $id = intval($_GET['delete']);
     $conn->query("DELETE FROM nzsupportlist WHERE id = $id");
@@ -165,6 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+$show_request_modal = false;
 $edit_row = null;
 if (isset($_GET['edit']) && hasPagePermission('nzsupportlist', 'can_update')) {
     $eid = intval($_GET['edit']);
@@ -649,7 +671,30 @@ if (isset($_SESSION['username'])) {
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label">User Name</label>
-                                <input type="text" name="user_name" class="form-control" required>
+                                <div class="user-search-dropdown">
+                                    <input type="text" class="form-control" readonly placeholder="-- Select User --" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                                    <input type="hidden" name="user_name" class="user-name-value" value="">
+                                    <div class="dropdown-menu">
+                                        <input type="text" class="form-control form-control-sm mb-1 user-search" placeholder="&#x1F50D; Search user..." style="position:sticky;top:0;z-index:1;">
+                                        <a class="dropdown-item" data-value="">-- Select --</a>
+                                        <?php if ($user_registry): foreach ($user_registry as $uname => $udata): ?>
+                                            <a class="dropdown-item" data-value="<?= htmlspecialchars($uname) ?>" data-oid="<?= htmlspecialchars($udata['oid']) ?>" data-desig="<?= htmlspecialchars($udata['designation']) ?>" data-dept="<?= htmlspecialchars($udata['department']) ?>" data-phone="<?= htmlspecialchars($udata['phone']) ?>"><?= htmlspecialchars($uname) ?></a>
+                                        <?php endforeach; endif; ?>
+                                    </div>
+                                </div>
+                                <div class="user-details mt-2 small" style="display:none">
+                                    <div class="p-2 border rounded bg-light">
+                                        <div class="row g-1">
+                                            <div class="col-6"><strong>OID:</strong> <span class="u-oid"></span></div>
+                                            <div class="col-6"><strong>Designation:</strong> <span class="u-desig"></span></div>
+                                            <div class="col-6"><strong>Department:</strong> <span class="u-dept"></span></div>
+                                            <div class="col-6"><strong>Phone:</strong> <span class="u-phone"></span></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <a href="#" class="small text-muted mt-1 d-inline-block" id="toggleManualInput">Or type manually</a>
+                                <input type="text" class="form-control mt-1 manual-user-name" style="display:none" placeholder="Type user name...">
+                                <a href="#" class="small text-primary mt-1 d-inline-block" data-bs-toggle="modal" data-bs-target="#requestUserModal">Request Admin to Add New User</a>
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label">Device</label>
@@ -699,6 +744,63 @@ if (isset($_SESSION['username'])) {
         </div>
     </div>
     <?php endif; ?>
+
+    <!-- Request New User Modal -->
+    <div class="modal fade" id="requestUserModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post">
+                    <div class="modal-header bg-info text-white">
+                        <h5 class="modal-title"><i class="bi bi-person-plus"></i> Request New User</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <?php if (isset($req_success)): ?>
+                            <div class="alert alert-success"><?= $req_success ?></div>
+                        <?php endif; ?>
+                        <?php if (isset($req_error)): ?>
+                            <div class="alert alert-danger"><?= $req_error ?></div>
+                        <?php endif; ?>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">OID <span class="text-danger">*</span></label>
+                                <input type="text" name="req_oid" class="form-control" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Name <span class="text-danger">*</span></label>
+                                <input type="text" name="req_name" class="form-control" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Designation</label>
+                                <input type="text" name="req_desig" class="form-control">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Department</label>
+                                <input type="text" name="req_dept" class="form-control">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Phone</label>
+                                <input type="text" name="req_phone" class="form-control">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Support Person</label>
+                                <select name="req_support_person" class="form-select">
+                                    <option value="">-- Select --</option>
+                                    <option value="Bappi">Bappi</option>
+                                    <option value="Nayem">Nayem</option>
+                                    <option value="All IT">All IT</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" name="request_user" class="btn btn-info"><i class="bi bi-send"></i> Send Request</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 
     <?php if ($edit_row && isLoggedIn()): ?>
     <div class="modal fade show" id="editModal" tabindex="-1" style="display:block;background:rgba(0,0,0,.5);">
@@ -1010,6 +1112,85 @@ if (isset($_SESSION['username'])) {
             printFrame.contentWindow.print();
         }, 500);
     }
+
+    <?php if ($show_request_modal): ?>
+    var reqModal = new bootstrap.Modal(document.getElementById('requestUserModal'));
+    reqModal.show();
+    <?php endif; ?>
+
+    // Searchable dropdown for User Name in Add modal
+    document.querySelectorAll('.user-search-dropdown').forEach(function(dd) {
+        var input = dd.querySelector('input[data-bs-toggle="dropdown"]');
+        var hidden = dd.querySelector('.user-name-value');
+        var menu = dd.querySelector('.dropdown-menu');
+        var search = dd.querySelector('.user-search');
+        var items = dd.querySelectorAll('.dropdown-item');
+        var detailsDiv = dd.parentElement.querySelector('.user-details');
+
+        function highlight(val, item) {
+            input.value = val || '-- Select User --';
+            if (hidden) hidden.value = val;
+            if (val) {
+                detailsDiv.style.display = 'block';
+                detailsDiv.querySelector('.u-oid').textContent = item ? item.dataset.oid : '';
+                detailsDiv.querySelector('.u-desig').textContent = item ? item.dataset.desig : '';
+                detailsDiv.querySelector('.u-dept').textContent = item ? item.dataset.dept : '';
+                detailsDiv.querySelector('.u-phone').textContent = item ? item.dataset.phone : '';
+            } else {
+                detailsDiv.style.display = 'none';
+            }
+        }
+
+        items.forEach(function(item) {
+            item.addEventListener('click', function() {
+                if (this.dataset.value) {
+                    highlight(this.dataset.value, this);
+                } else {
+                    highlight('', null);
+                }
+            });
+        });
+
+        if (search) {
+            search.addEventListener('keyup', function(e) {
+                e.stopPropagation();
+                var q = this.value.toLowerCase().trim();
+                items.forEach(function(item) {
+                    item.style.display = (!q || item.textContent.toLowerCase().indexOf(q) > -1) ? '' : 'none';
+                });
+            });
+            search.addEventListener('click', function(e) { e.stopPropagation(); });
+        }
+    });
+
+    // Toggle manual user name input
+    document.getElementById('toggleManualInput').addEventListener('click', function(e) {
+        e.preventDefault();
+        var container = this.parentElement;
+        var dropdownInput = container.querySelector('input[data-bs-toggle="dropdown"]');
+        var hidden = container.querySelector('.user-name-value');
+        var manualInput = container.querySelector('.manual-user-name');
+        var detailsDiv = container.querySelector('.user-details');
+        if (manualInput.style.display === 'none') {
+            manualInput.style.display = '';
+            dropdownInput.style.display = 'none';
+            detailsDiv.style.display = 'none';
+            if (hidden) hidden.value = '';
+            manualInput.name = 'user_name';
+            this.textContent = 'Select from list';
+        } else {
+            manualInput.style.display = 'none';
+            dropdownInput.style.display = '';
+            manualInput.name = '';
+            this.textContent = 'Or type manually';
+        }
+    });
+
+    // Sync manual input value with submission
+    document.querySelector('.manual-user-name').addEventListener('input', function() {
+        var hidden = this.parentElement.querySelector('.user-name-value');
+        if (hidden) hidden.value = this.value;
+    });
     </script>
 </body>
 </html>

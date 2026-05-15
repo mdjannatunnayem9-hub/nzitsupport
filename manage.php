@@ -36,6 +36,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'users' && isset($_POST['d
     $success = 'User deleted!';
 }
 
+// Handle approve user request
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'users' && isset($_POST['approve_request'])) {
+    $rid = intval($_POST['request_id']);
+    $req = $conn->query("SELECT * FROM user_requests WHERE id=$rid")->fetch_assoc();
+    if ($req) {
+        $stmt = $conn->prepare("INSERT IGNORE INTO user_registry (oid, name, designation, department, phone) VALUES (?, ?, ?, ?, ?)");
+        $stmt->bind_param("sssss", $req['oid'], $req['name'], $req['designation'], $req['department'], $req['phone']);
+        $stmt->execute();
+        if ($stmt->affected_rows > 0) {
+            $conn->query("UPDATE user_requests SET status='approved' WHERE id=$rid");
+            $success = "User '{$req['name']}' approved and added!";
+        } else {
+            $error = "OID '{$req['oid']}' already exists!";
+        }
+    }
+}
+
+// Handle reject user request
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'users' && isset($_POST['reject_request'])) {
+    $rid = intval($_POST['request_id']);
+    $conn->query("UPDATE user_requests SET status='rejected' WHERE id=$rid");
+    $success = 'Request rejected.';
+}
+
 // Handle Excel import for users
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'users' && isset($_POST['import_users'])) {
     if (isset($_FILES['user_excel']) && $_FILES['user_excel']['error'] === UPLOAD_ERR_OK) {
@@ -155,6 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tab === 'devices' && isset($_POST[
 $statuses = $conn->query("SELECT * FROM statuses ORDER BY sort_order");
 $devices = $conn->query("SELECT * FROM devices ORDER BY name");
 $users = $conn->query("SELECT * FROM user_registry ORDER BY name");
+$pending_requests = $conn->query("SELECT * FROM user_requests WHERE status='pending' ORDER BY created_at DESC");
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -298,6 +323,48 @@ $users = $conn->query("SELECT * FROM user_registry ORDER BY name");
                 </div>
             </div>
         </div>
+
+        <!-- User Requests -->
+        <?php if ($pending_requests && $pending_requests->num_rows > 0): ?>
+        <div class="card shadow mt-4">
+            <div class="card-header bg-warning text-dark">
+                <i class="bi bi-hourglass-split"></i> Pending User Requests (<?= $pending_requests->num_rows ?>)
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-bordered mb-0">
+                        <thead class="table-warning">
+                            <tr><th>OID</th><th>Name</th><th>Designation</th><th>Department</th><th>Phone</th><th>Support Person</th><th>Requested By</th><th>Action</th></tr>
+                        </thead>
+                        <tbody>
+                            <?php while ($rq = $pending_requests->fetch_assoc()): ?>
+                            <tr>
+                                <td><code><?= htmlspecialchars($rq['oid']) ?></code></td>
+                                <td><?= htmlspecialchars($rq['name']) ?></td>
+                                <td><?= htmlspecialchars($rq['designation'] ?: '-') ?></td>
+                                <td><?= htmlspecialchars($rq['department'] ?: '-') ?></td>
+                                <td><?= htmlspecialchars($rq['phone'] ?: '-') ?></td>
+                                <td><?= htmlspecialchars($rq['support_person'] ?: '-') ?></td>
+                                <td><?= htmlspecialchars($rq['requested_by']) ?></td>
+                                <td>
+                                    <form method="post" style="display:inline">
+                                        <input type="hidden" name="request_id" value="<?= $rq['id'] ?>">
+                                        <button type="submit" name="approve_request" class="btn btn-success btn-sm" onclick="return confirm('Approve this user?')">
+                                            <i class="bi bi-check-lg"></i> Approve
+                                        </button>
+                                        <button type="submit" name="reject_request" class="btn btn-danger btn-sm" onclick="return confirm('Reject this request?')">
+                                            <i class="bi bi-x-lg"></i> Reject
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            <?php endwhile; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <?php elseif ($tab === 'statuses'): ?>
         <!-- ==================== STATUSES ==================== -->
