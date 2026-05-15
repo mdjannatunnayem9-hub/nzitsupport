@@ -27,6 +27,11 @@ if (isset($_GET['delete']) || $_SERVER['REQUEST_METHOD'] === 'POST' || isset($_G
     requireLogin();
 }
 
+// Build preserved query params for redirects (strip delete/edit)
+$preserved_params = $_GET;
+unset($preserved_params['delete'], $preserved_params['edit']);
+$preserved_query = $preserved_params ? '?' . http_build_query($preserved_params) : '';
+
 // Close action
 if (isset($_POST['close_id'])) {
     if (hasPagePermission('nzsupportlist', 'can_update')) {
@@ -43,7 +48,7 @@ if (isset($_POST['close_id'])) {
             $stmt_l->execute();
         }
     }
-    header('Location: nzsupportlist.php');
+    header('Location: nzsupportlist.php' . $preserved_query);
     exit;
 }
 
@@ -57,17 +62,22 @@ if (isset($_POST['add_remark_id']) && hasPagePermission('nzsupportlist', 'can_up
         $stmt->bind_param("iss", $sid, $uname, $remark);
         $stmt->execute();
     }
-    header('Location: nzsupportlist.php');
+    header('Location: nzsupportlist.php' . $preserved_query);
     exit;
 }
 
+// Delete (GET)
 if (isset($_GET['delete']) && hasPagePermission('nzsupportlist', 'can_delete')) {
     $id = intval($_GET['delete']);
     $conn->query("DELETE FROM nzsupportlist WHERE id = $id");
-    header('Location: nzsupportlist.php');
+    $params = $_GET;
+    unset($params['delete']);
+    $q = $params ? '?' . http_build_query($params) : '';
+    header('Location: nzsupportlist.php' . $q);
     exit;
 }
 
+// Main POST (add / edit)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $edit_id = $_POST['edit_id'] ?? '';
 
@@ -91,9 +101,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($edit_id) {
-        if (!hasPagePermission('nzsupportlist', 'can_update')) { header('Location: nzsupportlist.php'); exit; }
-        
-        // Log all changes in remarks
+        if (!hasPagePermission('nzsupportlist', 'can_update')) { header('Location: nzsupportlist.php' . $preserved_query); exit; }
+
         $old_q = $conn->query("SELECT * FROM nzsupportlist WHERE id = ".intval($edit_id));
         $old_d = $old_q->fetch_assoc();
         $logs = [];
@@ -133,8 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->bind_param("ssssssssisi", $sup_id, $status, $user_name, $device, $support_person, $description, $remarks, $deadline, $remaining_days, $end_date, $edit_id);
         $stmt->execute();
     } else {
-        if (!hasPagePermission('nzsupportlist', 'can_edit')) { header('Location: nzsupportlist.php'); exit; }
-        // Auto-generate SupID
+        if (!hasPagePermission('nzsupportlist', 'can_edit')) { header('Location: nzsupportlist.php' . $preserved_query); exit; }
         $max = $conn->query("SELECT MAX(CAST(SUBSTRING(sup_id,4) AS UNSIGNED)) AS mx FROM nzsupportlist");
         $m = $max->fetch_assoc();
         $next = ($m['mx'] ?? 0) + 1;
@@ -144,7 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute();
     }
 
-    header('Location: nzsupportlist.php');
+    header('Location: nzsupportlist.php' . $preserved_query);
     exit;
 }
 
@@ -155,8 +163,47 @@ if (isset($_GET['edit']) && hasPagePermission('nzsupportlist', 'can_update')) {
     $edit_row = $res->fetch_assoc();
 }
 
-$result = $conn->query("SELECT * FROM nzsupportlist ORDER BY id DESC");
+// Server-side pagination & filtering
+$page = max(1, intval($_GET['page'] ?? 1));
+$limit = 100;
+$offset = ($page - 1) * $limit;
+$search = trim($_GET['search'] ?? '');
+$raw_status = $_GET['status'] ?? [];
+$selected_statuses = is_array($raw_status) ? $raw_status : [];
 
+$where = [];
+$params = [];
+$types = '';
+if ($search !== '') {
+    $where[] = "(user_name LIKE ? OR device LIKE ? OR sup_id LIKE ? OR description LIKE ?)";
+    $like = "%$search%";
+    $params = array_merge($params, [$like, $like, $like, $like]);
+    $types .= 'ssss';
+}
+if (!empty($selected_statuses)) {
+    $placeholders = implode(',', array_fill(0, count($selected_statuses), '?'));
+    $where[] = "status IN ($placeholders)";
+    $params = array_merge($params, $selected_statuses);
+    $types .= str_repeat('s', count($selected_statuses));
+}
+$where_clause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+
+// Total count (for pagination)
+$count_sql = "SELECT COUNT(*) AS total FROM nzsupportlist $where_clause";
+$stmt = $conn->prepare($count_sql);
+if ($params) $stmt->bind_param($types, ...$params);
+$stmt->execute();
+$total = $stmt->get_result()->fetch_assoc()['total'];
+$total_pages = max(1, ceil($total / $limit));
+
+// Data for current page
+$data_sql = "SELECT * FROM nzsupportlist $where_clause ORDER BY id DESC LIMIT $limit OFFSET $offset";
+$stmt = $conn->prepare($data_sql);
+if ($params) $stmt->bind_param($types, ...$params);
+$stmt->execute();
+$result = $stmt->get_result();
+
+// Status counts (unfiltered – shows totals)
 $status_counts = [];
 $cnt_res = $conn->query("SELECT status, COUNT(*) AS cnt FROM nzsupportlist GROUP BY status");
 if ($cnt_res) {
@@ -210,7 +257,6 @@ if (isset($_SESSION['username'])) {
         }
         .remark-item { transition: all 0.2s ease; }
         .expand-hint:hover { text-decoration: underline; }
-        .page-hidden { display: none !important; }
     </style>
 </head>
 <body>
@@ -263,30 +309,27 @@ if (isset($_SESSION['username'])) {
             </div>
         </div>
 
-        <!-- Filter Bar -->
-        <div class="card shadow-sm mb-3">
+        <!-- Filter Bar (GET form) -->
+        <form method="get" class="card shadow-sm mb-3">
             <div class="card-body py-2 px-3">
                 <div class="row g-2 align-items-center">
                     <div class="col-md-4" style="display:none">
-                        <div class="input-group input-group-sm">
-                            <input type="text" id="searchInput" class="form-control" placeholder="Search keyword..." onkeyup="filterTable()">
-                            <button class="btn btn-outline-secondary" type="button" onclick="filterTable()"><i class="bi bi-funnel"></i> Filter</button>
-                        </div>
+                        <input type="text" name="search" class="form-control form-control-sm" placeholder="Search..." value="<?= htmlspecialchars($search) ?>">
                     </div>
                     <div class="col-md-8">
                         <div class="d-flex flex-wrap align-items-center gap-2">
-                            <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#statusFilterCollapse" aria-expanded="false">
+                            <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#statusFilterCollapse">
                                 <i class="bi bi-funnel"></i> Status Filter <i class="bi bi-chevron-down"></i>
                             </button>
                             <button class="btn btn-outline-primary btn-sm" type="button" onclick="sortByPriority()" title="Sort by Priority"><i class="bi bi-sort-down"></i></button>
                         </div>
-                        <div class="collapse mt-2" id="statusFilterCollapse">
+                        <div class="collapse show mt-2" id="statusFilterCollapse">
                             <div class="d-flex flex-wrap align-items-center gap-2 p-2 border rounded bg-light">
-                                <?php
-                                $default_checked = ['Running', 'Pending', 'Analyzing', 'On Hold'];
-                                foreach ($status_order as $st_name => $st_abbr): ?>
+                                <?php foreach ($status_order as $st_name => $st_abbr):
+                                    $checked = in_array($st_name, $selected_statuses) || (empty($selected_statuses) && in_array($st_name, ['Running','Pending','Analyzing','On Hold']));
+                                ?>
                                     <label class="form-check-label small" style="cursor:pointer">
-                                        <input type="checkbox" class="form-check-input status-filter" value="<?= $st_name ?>" <?= in_array($st_name, $default_checked) ? 'checked' : '' ?> onchange="filterTable()">
+                                        <input type="checkbox" name="status[]" class="form-check-input status-filter" value="<?= $st_name ?>" <?= $checked ? 'checked' : '' ?> onchange="this.form.submit()">
                                         <?= $st_name ?>
                                     </label>
                                 <?php endforeach; ?>
@@ -295,7 +338,7 @@ if (isset($_SESSION['username'])) {
                     </div>
                 </div>
             </div>
-        </div>
+        </form>
 
         <!-- Status Counter -->
         <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
@@ -305,12 +348,6 @@ if (isset($_SESSION['username'])) {
                     <?= $abbr ?>=<?= $cnt ?>
                 </span>
             <?php endforeach; ?>
-        </div>
-
-        <!-- Pagination -->
-        <div class="d-flex justify-content-between align-items-center mb-2">
-            <small class="text-muted" id="pageInfo"></small>
-            <nav><ul class="pagination pagination-sm mb-0" id="pageNav"></ul></nav>
         </div>
 
         <div class="card shadow">
@@ -409,7 +446,7 @@ if (isset($_SESSION['username'])) {
                                                         $rem_count = count($all_rems);
                                                         if ($rem_count > 0): ?>
                                                             <div class="remarks-container" style="cursor:pointer" onclick="expandRemarks(this)">
-                                                                <?php foreach ($all_rems as $idx => $rem): 
+                                                                <?php foreach ($all_rems as $idx => $rem):
                                                                     $is_latest = ($idx === $rem_count - 1);
                                                                     ?>
                                                                     <div class="border rounded p-2 mb-1 bg-white remark-item <?= !$is_latest ? 'd-none' : '' ?>" style="font-size:0.85rem;">
@@ -453,14 +490,16 @@ if (isset($_SESSION['username'])) {
                                                         </div>
                                                         <div>
                                                         <?php if (hasPagePermission('nzsupportlist', 'can_delete')): ?>
-                                                            <a href="?delete=<?= $row['id'] ?>" class="btn btn-sm btn-danger btn-3d" onclick="return confirm('Delete this entry?')">
+                                                            <?php $del_params = array_merge($_GET, ['delete' => $row['id']]); unset($del_params['edit']); ?>
+                                                            <a href="?<?= http_build_query($del_params) ?>" class="btn btn-sm btn-danger btn-3d" onclick="return confirm('Delete this entry?')">
                                                                 <i class="bi bi-trash"></i> Delete
                                                             </a>
                                                         <?php endif; ?>
                                                         </div>
                                                         <div>
                                                         <?php if (hasPagePermission('nzsupportlist', 'can_update')): ?>
-                                                            <a href="?edit=<?= $row['id'] ?>" class="btn btn-sm btn-warning btn-3d">
+                                                            <?php $edit_params = array_merge($_GET, ['edit' => $row['id']]); unset($edit_params['delete']); ?>
+                                                            <a href="?<?= http_build_query($edit_params) ?>" class="btn btn-sm btn-warning btn-3d">
                                                                 <i class="bi bi-pencil"></i> Edit
                                                             </a>
                                                         <?php endif; ?>
@@ -490,6 +529,51 @@ if (isset($_SESSION['username'])) {
                 </div>
             </div>
         </div>
+
+        <!-- Server-side Pagination -->
+        <?php if ($total_pages > 1): ?>
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <small class="text-muted">Page <?= $page ?> of <?= $total_pages ?> (<?= $total ?> entries)</small>
+            <nav>
+                <ul class="pagination pagination-sm mb-0">
+                    <?php
+                    $page_params = $preserved_params;
+                    unset($page_params['page']);
+                    $prev_disabled = $page <= 1 ? ' disabled' : '';
+                    ?>
+                    <li class="page-item<?= $prev_disabled ?>">
+                        <a class="page-link" href="?<?= http_build_query(array_merge($page_params, ['page' => $page - 1])) ?>">&laquo;</a>
+                    </li>
+                    <?php
+                    $start_p = max(1, $page - 2);
+                    $end_p = min($total_pages, $page + 2);
+                    if ($start_p > 1): ?>
+                        <li class="page-item"><a class="page-link" href="?<?= http_build_query(array_merge($page_params, ['page' => 1])) ?>">1</a></li>
+                        <?php if ($start_p > 2): ?>
+                            <li class="page-item disabled"><a class="page-link" href="#">...</a></li>
+                        <?php endif; ?>
+                    <?php endif;
+                    for ($p = $start_p; $p <= $end_p; $p++):
+                        $active = $p == $page ? ' active' : ''; ?>
+                        <li class="page-item<?= $active ?>">
+                            <a class="page-link" href="?<?= http_build_query(array_merge($page_params, ['page' => $p])) ?>"><?= $p ?></a>
+                        </li>
+                    <?php endfor;
+                    if ($end_p < $total_pages):
+                        if ($end_p < $total_pages - 1): ?>
+                            <li class="page-item disabled"><a class="page-link" href="#">...</a></li>
+                        <?php endif; ?>
+                        <li class="page-item"><a class="page-link" href="?<?= http_build_query(array_merge($page_params, ['page' => $total_pages])) ?>"><?= $total_pages ?></a></li>
+                    <?php endif; ?>
+                    <?php $next_disabled = $page >= $total_pages ? ' disabled' : ''; ?>
+                    <li class="page-item<?= $next_disabled ?>">
+                        <a class="page-link" href="?<?= http_build_query(array_merge($page_params, ['page' => $page + 1])) ?>">&raquo;</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+        <?php endif; ?>
+
         <?php if (!isLoggedIn()): ?>
             <div class="text-center mt-3">
                 <a href="login.php" class="btn btn-outline-primary btn-sm">
@@ -579,7 +663,7 @@ if (isset($_SESSION['username'])) {
                 <form method="post">
                     <div class="modal-header bg-warning text-dark">
                         <h5 class="modal-title"><i class="bi bi-pencil"></i> Edit Support Entry</h5>
-                        <a href="nzsupportlist.php" class="btn-close"></a>
+                        <a href="nzsupportlist.php<?= $preserved_query ?>" class="btn-close"></a>
                     </div>
                     <div class="modal-body">
                         <input type="hidden" name="edit_id" value="<?= $edit_row['id'] ?>">
@@ -642,7 +726,7 @@ if (isset($_SESSION['username'])) {
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <a href="nzsupportlist.php" class="btn btn-secondary">Cancel</a>
+                        <a href="nzsupportlist.php<?= $preserved_query ?>" class="btn btn-secondary">Cancel</a>
                         <button type="submit" class="btn btn-warning"><i class="bi bi-check-lg"></i> Update</button>
                     </div>
                 </form>
@@ -659,133 +743,6 @@ if (isset($_SESSION['username'])) {
     document.querySelectorAll('.main-row').forEach(function(r) {
         originalOrder.push(r.dataset.id);
     });
-
-    // Pagination
-    var currentPage = 1;
-    var rowsPerPage = 100;
-
-    function paginateTable() {
-        // Get rows that pass the filter (visible)
-        var visibleRows = [];
-        // First, ensure no rows have page-hidden leftover
-        document.querySelectorAll('.main-row').forEach(function(r) {
-            r.classList.remove('page-hidden');
-        });
-        document.querySelectorAll('.main-row').forEach(function(row) {
-            if (row.style.display !== 'none') {
-                visibleRows.push(row);
-            }
-        });
-        var totalPages = Math.ceil(visibleRows.length / rowsPerPage) || 1;
-        if (currentPage > totalPages) currentPage = totalPages;
-
-        // Hide rows not on current page (only among visible rows)
-        visibleRows.forEach(function(row, idx) {
-            var pg = Math.floor(idx / rowsPerPage) + 1;
-            if (pg !== currentPage) {
-                row.classList.add('page-hidden');
-                var detail = document.querySelector('.detail-row[data-id="' + row.dataset.id + '"]');
-                if (detail) detail.style.display = 'none';
-            }
-        });
-
-        // Render page nav
-        var nav = document.getElementById('pageNav');
-        var info = document.getElementById('pageInfo');
-        nav.innerHTML = '';
-        if (totalPages <= 1) {
-            info.textContent = '';
-            return;
-        }
-        info.textContent = 'Showing page ' + currentPage + ' of ' + totalPages + ' (' + visibleRows.length + ' entries)';
-
-        var prevLi = document.createElement('li');
-        prevLi.className = 'page-item' + (currentPage === 1 ? ' disabled' : '');
-        prevLi.innerHTML = '<a class="page-link" href="#">&laquo;</a>';
-        prevLi.onclick = function(e) { e.preventDefault(); if (currentPage > 1) { currentPage--; paginateTable(); } };
-        nav.appendChild(prevLi);
-
-        var startP = Math.max(1, currentPage - 2);
-        var endP = Math.min(totalPages, currentPage + 2);
-        if (startP > 1) {
-            var firstLi = document.createElement('li');
-            firstLi.className = 'page-item';
-            firstLi.innerHTML = '<a class="page-link" href="#">1</a>';
-            firstLi.onclick = function(e) { e.preventDefault(); currentPage = 1; paginateTable(); };
-            nav.appendChild(firstLi);
-            if (startP > 2) {
-                var dots = document.createElement('li');
-                dots.className = 'page-item disabled';
-                dots.innerHTML = '<a class="page-link" href="#">...</a>';
-                nav.appendChild(dots);
-            }
-        }
-        for (var p = startP; p <= endP; p++) {
-            var li = document.createElement('li');
-            li.className = 'page-item' + (p === currentPage ? ' active' : '');
-            li.innerHTML = '<a class="page-link" href="#">' + p + '</a>';
-            li.onclick = (function(pg) { return function(e) { e.preventDefault(); currentPage = pg; paginateTable(); }; })(p);
-            nav.appendChild(li);
-        }
-        if (endP < totalPages) {
-            if (endP < totalPages - 1) {
-                var dots2 = document.createElement('li');
-                dots2.className = 'page-item disabled';
-                dots2.innerHTML = '<a class="page-link" href="#">...</a>';
-                nav.appendChild(dots2);
-            }
-            var lastLi = document.createElement('li');
-            lastLi.className = 'page-item';
-            lastLi.innerHTML = '<a class="page-link" href="#">' + totalPages + '</a>';
-            lastLi.onclick = function(e) { e.preventDefault(); currentPage = totalPages; paginateTable(); };
-            nav.appendChild(lastLi);
-        }
-
-        var nextLi = document.createElement('li');
-        nextLi.className = 'page-item' + (currentPage === totalPages ? ' disabled' : '');
-        nextLi.innerHTML = '<a class="page-link" href="#">&raquo;</a>';
-        nextLi.onclick = function(e) { e.preventDefault(); if (currentPage < totalPages) { currentPage++; paginateTable(); } };
-        nav.appendChild(nextLi);
-    }
-
-    // Search/filter
-    function filterTable() {
-        var q = document.getElementById('searchInput').value.toLowerCase().trim();
-
-        // Get checked statuses
-        var checkedStatuses = [];
-        document.querySelectorAll('.status-filter:checked').forEach(function(cb) {
-            checkedStatuses.push(cb.value.toLowerCase());
-        });
-
-        document.querySelectorAll('.main-row').forEach(function(row) {
-            var txt = row.textContent.toLowerCase();
-            var detail = document.querySelector('.detail-row[data-id="' + row.dataset.id + '"]');
-
-            // Find status text from badge only
-            var statusBadge = row.querySelector('.status-badge');
-            var statusText = statusBadge ? statusBadge.textContent.trim().toLowerCase() : '';
-
-            var matchSearch = txt.indexOf(q) > -1;
-            var matchStatus = checkedStatuses.length === 0 || checkedStatuses.indexOf(statusText) > -1;
-
-            if (matchSearch && matchStatus) {
-                row.style.display = '';
-            } else {
-                row.style.display = 'none';
-                if (detail) detail.style.display = 'none';
-            }
-        });
-
-        currentPage = 1;
-        paginateTable();
-    }
-    document.getElementById('searchInput').addEventListener('keyup', function(e) {
-        if (e.key === 'Enter') filterTable();
-    });
-
-    // Apply default filter on load
-    filterTable();
 
     // Sort by priority toggle
     var prioritySorted = true;
@@ -805,7 +762,6 @@ if (isset($_SESSION['username'])) {
                 if (row) tbody.appendChild(row);
                 if (detail) tbody.appendChild(detail);
             });
-            paginateTable();
             return;
         }
 
@@ -822,11 +778,10 @@ if (isset($_SESSION['username'])) {
             tbody.appendChild(row);
             if (detail) tbody.appendChild(detail);
         });
-        paginateTable();
     }
 
     // Apply priority sort on load
-    prioritySorted = false; // so first toggle sets it to true
+    prioritySorted = false;
     sortByPriority();
 
     // Row expand/collapse
@@ -914,7 +869,6 @@ if (isset($_SESSION['username'])) {
                     item.style.display = (!q || item.textContent.toLowerCase().indexOf(q) > -1) ? '' : 'none';
                 });
             });
-            // Keep dropdown open while typing
             search.addEventListener('click', function(e) { e.stopPropagation(); });
         }
     });
@@ -934,7 +888,7 @@ if (isset($_SESSION['username'])) {
         const endDate = detailRow.querySelector('.col-md-3:nth-of-type(5) strong')?.textContent || '-';
         const description = detailRow.querySelector('.col-md-6 strong')?.textContent || '-';
         const remainingDaysBadge = detailRow.querySelector('.badge');
-        
+
         let badgeHtml = '-';
         if (remainingDaysBadge) {
             const type = remainingDaysBadge.classList.contains('bg-info') ? 'bg-info' : 'bg-danger';
@@ -950,7 +904,6 @@ if (isset($_SESSION['username'])) {
             return `<div class="remark-item"><div class="remark-meta"><span>${user}</span><span>${time}</span></div><div class="remark-text">${text}</div></div>`;
         }).join('');
 
-        // Use a hidden iframe for printing (prevents popup blockers on mobile)
         let printFrame = document.getElementById('printFrame');
         if (!printFrame) {
             printFrame = document.createElement('iframe');
@@ -1008,7 +961,6 @@ if (isset($_SESSION['username'])) {
         `);
         doc.close();
 
-        // Print after content is loaded
         setTimeout(() => {
             printFrame.contentWindow.focus();
             printFrame.contentWindow.print();
