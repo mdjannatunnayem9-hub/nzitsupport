@@ -210,6 +210,7 @@ if (isset($_SESSION['username'])) {
         }
         .remark-item { transition: all 0.2s ease; }
         .expand-hint:hover { text-decoration: underline; }
+        .page-hidden { display: none !important; }
     </style>
 </head>
 <body>
@@ -281,10 +282,11 @@ if (isset($_SESSION['username'])) {
                         </div>
                         <div class="collapse mt-2" id="statusFilterCollapse">
                             <div class="d-flex flex-wrap align-items-center gap-2 p-2 border rounded bg-light">
-                                <?php foreach ($status_order as $st_name => $st_abbr):
-                                    $is_complete = ($st_name === 'Complete'); ?>
+                                <?php
+                                $default_checked = ['Running', 'Pending', 'Analyzing', 'On Hold'];
+                                foreach ($status_order as $st_name => $st_abbr): ?>
                                     <label class="form-check-label small" style="cursor:pointer">
-                                        <input type="checkbox" class="form-check-input status-filter" value="<?= $st_name ?>" <?= !$is_complete ? 'checked' : '' ?> onchange="filterTable()">
+                                        <input type="checkbox" class="form-check-input status-filter" value="<?= $st_name ?>" <?= in_array($st_name, $default_checked) ? 'checked' : '' ?> onchange="filterTable()">
                                         <?= $st_name ?>
                                     </label>
                                 <?php endforeach; ?>
@@ -303,6 +305,12 @@ if (isset($_SESSION['username'])) {
                     <?= $abbr ?>=<?= $cnt ?>
                 </span>
             <?php endforeach; ?>
+        </div>
+
+        <!-- Pagination -->
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <small class="text-muted" id="pageInfo"></small>
+            <nav><ul class="pagination pagination-sm mb-0" id="pageNav"></ul></nav>
         </div>
 
         <div class="card shadow">
@@ -652,6 +660,94 @@ if (isset($_SESSION['username'])) {
         originalOrder.push(r.dataset.id);
     });
 
+    // Pagination
+    var currentPage = 1;
+    var rowsPerPage = 100;
+
+    function paginateTable() {
+        // Get rows that pass the filter (visible)
+        var visibleRows = [];
+        // First, ensure no rows have page-hidden leftover
+        document.querySelectorAll('.main-row').forEach(function(r) {
+            r.classList.remove('page-hidden');
+        });
+        document.querySelectorAll('.main-row').forEach(function(row) {
+            if (row.style.display !== 'none') {
+                visibleRows.push(row);
+            }
+        });
+        var totalPages = Math.ceil(visibleRows.length / rowsPerPage) || 1;
+        if (currentPage > totalPages) currentPage = totalPages;
+
+        // Hide rows not on current page (only among visible rows)
+        visibleRows.forEach(function(row, idx) {
+            var pg = Math.floor(idx / rowsPerPage) + 1;
+            if (pg !== currentPage) {
+                row.classList.add('page-hidden');
+                var detail = document.querySelector('.detail-row[data-id="' + row.dataset.id + '"]');
+                if (detail) detail.style.display = 'none';
+            }
+        });
+
+        // Render page nav
+        var nav = document.getElementById('pageNav');
+        var info = document.getElementById('pageInfo');
+        nav.innerHTML = '';
+        if (totalPages <= 1) {
+            info.textContent = '';
+            return;
+        }
+        info.textContent = 'Showing page ' + currentPage + ' of ' + totalPages + ' (' + visibleRows.length + ' entries)';
+
+        var prevLi = document.createElement('li');
+        prevLi.className = 'page-item' + (currentPage === 1 ? ' disabled' : '');
+        prevLi.innerHTML = '<a class="page-link" href="#">&laquo;</a>';
+        prevLi.onclick = function(e) { e.preventDefault(); if (currentPage > 1) { currentPage--; paginateTable(); } };
+        nav.appendChild(prevLi);
+
+        var startP = Math.max(1, currentPage - 2);
+        var endP = Math.min(totalPages, currentPage + 2);
+        if (startP > 1) {
+            var firstLi = document.createElement('li');
+            firstLi.className = 'page-item';
+            firstLi.innerHTML = '<a class="page-link" href="#">1</a>';
+            firstLi.onclick = function(e) { e.preventDefault(); currentPage = 1; paginateTable(); };
+            nav.appendChild(firstLi);
+            if (startP > 2) {
+                var dots = document.createElement('li');
+                dots.className = 'page-item disabled';
+                dots.innerHTML = '<a class="page-link" href="#">...</a>';
+                nav.appendChild(dots);
+            }
+        }
+        for (var p = startP; p <= endP; p++) {
+            var li = document.createElement('li');
+            li.className = 'page-item' + (p === currentPage ? ' active' : '');
+            li.innerHTML = '<a class="page-link" href="#">' + p + '</a>';
+            li.onclick = (function(pg) { return function(e) { e.preventDefault(); currentPage = pg; paginateTable(); }; })(p);
+            nav.appendChild(li);
+        }
+        if (endP < totalPages) {
+            if (endP < totalPages - 1) {
+                var dots2 = document.createElement('li');
+                dots2.className = 'page-item disabled';
+                dots2.innerHTML = '<a class="page-link" href="#">...</a>';
+                nav.appendChild(dots2);
+            }
+            var lastLi = document.createElement('li');
+            lastLi.className = 'page-item';
+            lastLi.innerHTML = '<a class="page-link" href="#">' + totalPages + '</a>';
+            lastLi.onclick = function(e) { e.preventDefault(); currentPage = totalPages; paginateTable(); };
+            nav.appendChild(lastLi);
+        }
+
+        var nextLi = document.createElement('li');
+        nextLi.className = 'page-item' + (currentPage === totalPages ? ' disabled' : '');
+        nextLi.innerHTML = '<a class="page-link" href="#">&raquo;</a>';
+        nextLi.onclick = function(e) { e.preventDefault(); if (currentPage < totalPages) { currentPage++; paginateTable(); } };
+        nav.appendChild(nextLi);
+    }
+
     // Search/filter
     function filterTable() {
         var q = document.getElementById('searchInput').value.toLowerCase().trim();
@@ -680,6 +776,9 @@ if (isset($_SESSION['username'])) {
                 if (detail) detail.style.display = 'none';
             }
         });
+
+        currentPage = 1;
+        paginateTable();
     }
     document.getElementById('searchInput').addEventListener('keyup', function(e) {
         if (e.key === 'Enter') filterTable();
@@ -690,28 +789,32 @@ if (isset($_SESSION['username'])) {
 
     // Sort by priority toggle
     var prioritySorted = true;
+    var priorityMap = {};
+    <?php $idx = 1; foreach ($status_order as $st => $abbr): ?>
+    priorityMap['<?= $st ?>'] = <?= $idx++ ?>;
+    <?php endforeach; ?>
+
     function sortByPriority() {
         var tbody = document.querySelector('table tbody');
         prioritySorted = !prioritySorted;
 
         if (!prioritySorted) {
-            // Restore original order
             originalOrder.forEach(function(id) {
                 var row = document.querySelector('.main-row[data-id="' + id + '"]');
                 var detail = document.querySelector('.detail-row[data-id="' + id + '"]');
                 if (row) tbody.appendChild(row);
                 if (detail) tbody.appendChild(detail);
             });
+            paginateTable();
             return;
         }
 
-        var priority = { 'Running': 1, 'Pending': 2, 'Analyzing': 3, 'On Hold': 4, 'Complete': 5, 'SOP': 6, 'Abandon': 7 };
         var rows = Array.from(tbody.querySelectorAll('.main-row'));
 
         rows.sort(function(a, b) {
             var sa = a.querySelector('.status-badge') ? a.querySelector('.status-badge').textContent.trim() : '';
             var sb = b.querySelector('.status-badge') ? b.querySelector('.status-badge').textContent.trim() : '';
-            return (priority[sa] || 99) - (priority[sb] || 99);
+            return (priorityMap[sa] || 99) - (priorityMap[sb] || 99);
         });
 
         rows.forEach(function(row) {
@@ -719,6 +822,7 @@ if (isset($_SESSION['username'])) {
             tbody.appendChild(row);
             if (detail) tbody.appendChild(detail);
         });
+        paginateTable();
     }
 
     // Apply priority sort on load
