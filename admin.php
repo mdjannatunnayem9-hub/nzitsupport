@@ -79,16 +79,40 @@ if (!isLoggedIn() || !isAdmin()) {
     </style>
 
     <div class="container py-4">
-        <div class="card perm-card text-center shadow-lg border-0">
-            <div class="card-body py-4 px-4">
-                <div class="icon-circle mb-2">
-                    <i class="bi bi-shield-lock-fill"></i>
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="card perm-card text-center shadow-lg border-0 h-100">
+                    <div class="card-body py-4 px-4">
+                        <div class="icon-circle mb-2">
+                            <i class="bi bi-shield-lock-fill"></i>
+                        </div>
+                        <h3 class="card-title mt-2">Permission Management</h3>
+                        <p class="card-text mb-3">Manage users, permissions, and page access control</p>
+                        <a href="permission.php" class="btn btn-primary">
+                            <i class="bi bi-shield-check me-2"></i> Open Permission Panel
+                        </a>
+                    </div>
                 </div>
-                <h3 class="card-title mt-2">Permission Management</h3>
-                <p class="card-text mb-3">Manage users, permissions, and page access control</p>
-                <a href="permission.php" class="btn btn-primary">
-                    <i class="bi bi-shield-check me-2"></i> Open Permission Panel
-                </a>
+            </div>
+            <div class="col-md-6">
+                <div class="card perm-card text-center shadow-lg border-0 h-100">
+                    <div class="card-body py-4 px-4">
+                        <div class="icon-circle mb-2">
+                            <i class="bi bi-database"></i>
+                        </div>
+                        <h3 class="card-title mt-2">Data Management</h3>
+                        <p class="card-text mb-3">Manage users, statuses, and device options</p>
+                        <a href="manage.php?tab=users" class="btn btn-primary mb-2 px-4">
+                            <i class="bi bi-people me-1"></i> User Name
+                        </a>
+                        <a href="manage.php?tab=statuses" class="btn btn-primary mb-2 px-4">
+                            <i class="bi bi-tags me-1"></i> Status
+                        </a>
+                        <a href="manage.php?tab=devices" class="btn btn-primary px-4">
+                            <i class="bi bi-pc-display me-1"></i> Device
+                        </a>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
