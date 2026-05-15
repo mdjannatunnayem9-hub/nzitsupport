@@ -1,6 +1,8 @@
 <?php
 require_once 'config.php';
 
+$base_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['SCRIPT_NAME']);
+
 // Load statuses and devices from DB
 $statuses = $conn->query("SELECT * FROM statuses ORDER BY sort_order");
 $devices = $conn->query("SELECT * FROM devices ORDER BY name");
@@ -40,6 +42,35 @@ if (isset($_GET['delete']) || $_SERVER['REQUEST_METHOD'] === 'POST' || isset($_G
 $preserved_params = $_GET;
 unset($preserved_params['delete'], $preserved_params['edit']);
 $preserved_query = $preserved_params ? '?' . http_build_query($preserved_params) : '';
+
+// Export support list to CSV (full backup)
+if (isset($_GET['export'])) {
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename=support_list.csv');
+    $out = fopen('php://output', 'w');
+    fputcsv($out, ['SupID', 'Status', 'User Name', 'OID', 'Designation', 'Department', 'Phone', 'Device', 'Support Person', 'Start Date', 'Deadline', 'Remaining Days', 'End Date', 'Description', 'Remarks']);
+    $exp = $conn->query("SELECT s.*, r.oid, r.designation, r.department, r.phone FROM nzsupportlist s LEFT JOIN user_registry r ON s.user_name = r.name ORDER BY s.id");
+    while ($e = $exp->fetch_assoc()) {
+        $rd = '-';
+        if ($e['deadline'] && $e['status'] !== 'Complete') {
+            $d1 = new DateTime($e['deadline']);
+            $d2 = new DateTime();
+            $diff = (int) $d1->diff($d2)->days;
+            $rd = $d1 < $d2 ? 'Overdue' : $diff . ' days';
+        } elseif ($e['status'] === 'Complete') {
+            $rd = 'Completed';
+        }
+        $all_remarks = [];
+        $rm = $conn->query("SELECT user_name, remark FROM remarks WHERE support_id = {$e['id']} ORDER BY created_at ASC");
+        while ($r = $rm->fetch_assoc()) {
+            $all_remarks[] = $r['user_name'] . ': ' . $r['remark'];
+        }
+        $remarks_str = implode(' | ', $all_remarks);
+        fputcsv($out, [$e['sup_id'], $e['status'], $e['user_name'], $e['oid'] ?? '', $e['designation'] ?? '', $e['department'] ?? '', $e['phone'] ?? '', $e['device'], $e['support_person'], $e['start_date'], $e['deadline'], $rd, $e['end_date'] ?? '', $e['description'], $remarks_str]);
+    }
+    fclose($out);
+    exit;
+}
 
 // Close action
 if (isset($_POST['close_id'])) {
@@ -180,6 +211,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $conn->prepare("INSERT INTO nzsupportlist (sup_id, status, user_name, device, support_person, start_date, description, remarks, deadline, remaining_days, end_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
         $stmt->bind_param("sssssssssis", $sup_id, $status, $user_name, $device, $support_person, $start_date, $description, $remarks, $deadline, $remaining_days, $end_date);
         $stmt->execute();
+        $new_id = $conn->insert_id;
+        if ($remarks) {
+            $stmt_r = $conn->prepare("INSERT INTO remarks (support_id, user_name, remark) VALUES (?, ?, ?)");
+            $stmt_r->bind_param("iss", $new_id, $user_name, $remarks);
+            $stmt_r->execute();
+        }
     }
 
     header('Location: nzsupportlist.php' . $preserved_query);
@@ -296,37 +333,7 @@ if (isset($_SESSION['username'])) {
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand" href="index.php">NZIT Support</a>
-            <div class="d-flex align-items-center gap-2">
-                <?php if (isLoggedIn()): ?>
-                    <span class="text-light me-2">
-                        <i class="bi bi-person-circle"></i> <?= htmlspecialchars($_SESSION['username']) ?>
-                        <?php if (isAdmin()): ?>
-                            <span class="badge bg-danger ms-1">ADMIN</span>
-                        <?php endif; ?>
-                    </span>
-                    <a href="index.php" class="btn btn-outline-light btn-sm">
-                        <i class="bi bi-house"></i> Home
-                    </a>
-                    <?php if (isAdmin()): ?>
-                        <a href="admin.php" class="btn btn-outline-warning btn-sm">
-                            <i class="bi bi-gear"></i> Admin Panel
-                        </a>
-                    <?php endif; ?>
-                    <a href="logout.php" class="btn btn-outline-light btn-sm">Logout</a>
-                <?php else: ?>
-                    <a href="index.php" class="btn btn-outline-light btn-sm">
-                        <i class="bi bi-house"></i> Home
-                    </a>
-                    <a href="login.php" class="btn btn-outline-light btn-sm">
-                        <i class="bi bi-box-arrow-in-right"></i> Login
-                    </a>
-                <?php endif; ?>
-            </div>
-        </div>
-    </nav>
+    <?php require_once 'header.php'; ?>
 
     <div class="container py-4">
         <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
@@ -338,6 +345,9 @@ if (isset($_SESSION['username'])) {
                     </button>
                 <?php endif; ?>
                 <?php if (isAdmin()): ?>
+                    <a href="nzsupportlist.php?<?= $preserved_params ? http_build_query($preserved_params) . '&' : '' ?>export=1" class="btn btn-info btn-sm">
+                        <i class="bi bi-download"></i> Export
+                    </a>
                     <a href="import_excel.php" class="btn btn-success btn-sm">
                         <i class="bi bi-file-earmark-excel"></i> Import
                     </a>
@@ -388,11 +398,11 @@ if (isset($_SESSION['username'])) {
 
         <div class="card shadow">
             <div class="card-body p-0">
-                <div class="table-responsive">
+                    <div class="table-responsive">
                     <table class="table table-bordered table-hover mb-0">
-                        <thead class="table-dark">
+                        <thead class="table-dark text-center">
                             <tr>
-                                <th>SupID</th>
+                                <th>Sup ID</th>
                                 <th>Status</th>
                                 <th>User Name</th>
                                 <th>Device</th>
@@ -450,59 +460,103 @@ if (isset($_SESSION['username'])) {
                                                 $u_phone = $uinfo['phone'] ?? null;
                                                 ?>
                                                 <div class="row g-3">
-                                                    <div class="col-md-3">
-                                                        <small class="text-muted d-block">Support Person</small>
-                                                        <strong><?= htmlspecialchars($row['support_person']) ?: '-' ?></strong>
+                                                    <div class="col-md-4">
+                                                        <div class="p-2 rounded" style="background:#e3f2fd">
+                                                            <small class="text-muted d-block" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px">Support Person</small>
+                                                            <strong><?= htmlspecialchars($row['support_person']) ?: '-' ?></strong>
+                                                        </div>
                                                     </div>
-                                                    <div class="col-md-3">
-                                                        <small class="text-muted d-block">OID</small>
-                                                        <strong><?= $u_oid ? htmlspecialchars($u_oid) : '-' ?></strong>
+                                                    <div class="col-md-4">
+                                                        <div class="p-2 rounded" style="background:#e3f2fd">
+                                                            <small class="text-muted d-block" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px">OID</small>
+                                                            <strong><?= $u_oid ? htmlspecialchars($u_oid) : '-' ?></strong>
+                                                        </div>
                                                     </div>
-                                                    <div class="col-md-3">
-                                                        <small class="text-muted d-block">Designation</small>
-                                                        <strong><?= $u_desig ? htmlspecialchars($u_desig) : '-' ?></strong>
+                                                    <?php $is_support_phone = isLoggedIn() && ($_SESSION['username'] === $row['support_person'] || isAdmin()); if ($is_support_phone || !$u_phone): ?>
+                                                    <div class="col-md-4">
+                                                        <div class="p-2 rounded" style="background:#e3f2fd">
+                                                            <small class="text-muted d-block" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px">Phone</small>
+                                                                  <?php if ($u_phone):
+                                                                          $phone_clean = preg_replace('/[^0-9]/', '', $u_phone);
+                                                                          if (substr($phone_clean, 0, 2) !== '88') {
+                                                                              $phone_clean = '880' . ltrim($phone_clean, '0');
+                                                                          }
+                                                                          ?>
+                                                                          <strong>
+                                                                          <?php
+                                                                          $wa_desc = trim(preg_replace('/\s+/', ' ', strip_tags(html_entity_decode($row['description'] ?? ''))));
+                                                                          $wa_text = $row['sup_id'] . ' - ' . $wa_desc . "\n" . $base_url . '/ticket.php?id=' . $row['id'];
+                                                                          ?>
+                                                                          <a href="https://wa.me/<?= $phone_clean ?>?text=<?= rawurlencode($wa_text) ?>" target="_blank" class="text-success me-2" title="WhatsApp" style="font-size:1.1rem;"><i class="bi bi-whatsapp"></i></a>
+                                                                          <a href="tel:<?= htmlspecialchars($u_phone) ?>" class="text-primary me-2" title="Call" style="font-size:1.1rem;"><i class="bi bi-telephone-fill"></i></a>
+                                                                          <a href="#" class="text-secondary" title="Copy link" style="font-size:1rem;position:relative;" onclick="copyLink(this,'<?= htmlspecialchars($base_url . '/ticket.php?id=' . $row['id'], ENT_QUOTES) ?>');return false;"><i class="bi bi-link-45deg"></i></a>
+                                                                          </strong>
+                                                                        <?php else: ?>
+                                                                        <strong>-</strong>
+                                                                  <?php endif; ?>
+                                                        </div>
                                                     </div>
-                                                    <div class="col-md-3">
-                                                        <small class="text-muted d-block">Department</small>
-                                                        <strong><?= $u_dept ? htmlspecialchars($u_dept) : '-' ?></strong>
+                                                    <?php endif; ?>
+                                                    <div class="col-md-4">
+                                                        <div class="p-2 rounded" style="background:#fff3e0">
+                                                            <small class="text-muted d-block" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px">Designation</small>
+                                                            <strong><?= $u_desig ? htmlspecialchars($u_desig) : '-' ?></strong>
+                                                        </div>
                                                     </div>
-                                                    <div class="col-md-3">
-                                                        <small class="text-muted d-block">Start Date</small>
-                                                        <strong><?= htmlspecialchars($row['start_date']) ?: '-' ?></strong>
+                                                    <div class="col-md-4">
+                                                        <div class="p-2 rounded" style="background:#fff3e0">
+                                                            <small class="text-muted d-block" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px">Department</small>
+                                                            <strong><?= $u_dept ? htmlspecialchars($u_dept) : '-' ?></strong>
+                                                        </div>
                                                     </div>
-                                                    <div class="col-md-3">
-                                                        <small class="text-muted d-block">Dead Line</small>
-                                                        <strong><?= htmlspecialchars($row['deadline']) ?: '-' ?></strong>
+                                                    <div class="col-md-4">
+                                                        <div class="p-2 rounded" style="background:#fff3e0">
+                                                            <small class="text-muted d-block" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px">Start Date</small>
+                                                            <strong><?= htmlspecialchars($row['start_date']) ?: '-' ?></strong>
+                                                        </div>
                                                     </div>
-                                                    <div class="col-md-3">
-                                                        <small class="text-muted d-block">Phone</small>
-                                                        <?php if ($u_phone): ?>
-                                                            <strong>
-                                                                <a href="https://wa.me/<?= preg_replace('/[^0-9]/', '', $u_phone) ?>" target="_blank" class="text-success me-2" title="WhatsApp" style="font-size:1.2rem;"><i class="bi bi-whatsapp"></i></a>
-                                                                <a href="tel:<?= htmlspecialchars($u_phone) ?>" class="text-primary" title="Call" style="font-size:1.2rem;"><i class="bi bi-telephone"></i></a>
-                                                            </strong>
-                                                        <?php else: ?>
-                                                            <strong>-</strong>
-                                                        <?php endif; ?>
+                                                    <div class="col-md-4">
+                                                        <div class="p-2 rounded" style="background:#f3e5f5">
+                                                            <small class="text-muted d-block" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px">Dead Line</small>
+                                                            <strong><?= htmlspecialchars($row['deadline']) ?: '-' ?></strong>
+                                                        </div>
                                                     </div>
-                                                    <div class="col-md-3">
-                                                        <small class="text-muted d-block">Remaining Days</small>
-                                                        <?php if ($row['remaining_days'] > 0): ?>
-                                                            <span class="badge bg-info"><?= $row['remaining_days'] ?> days</span>
-                                                        <?php else: ?>
-                                                            <span class="badge bg-danger">Overdue</span>
-                                                        <?php endif; ?>
+                                                    <div class="col-md-4">
+                                                        <div class="p-2 rounded" style="background:#f3e5f5">
+                                                            <small class="text-muted d-block" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px">Remaining Days</small>
+                                                            <?php if (!$row['deadline'] || $row['deadline'] === '0000-00-00'): ?>
+                                                                <strong>—</strong>
+                                                            <?php elseif ($row['status'] === 'Complete'): ?>
+                                                                <span class="badge bg-secondary">Completed</span>
+                                                            <?php elseif ($row['remaining_days'] > 0): ?>
+                                                                <span class="badge bg-info"><?= $row['remaining_days'] ?> days</span>
+                                                            <?php else: ?>
+                                                                <span class="badge bg-danger">Overdue</span>
+                                                            <?php endif; ?>
+                                                        </div>
                                                     </div>
-                                                    <div class="col-md-3">
-                                                        <small class="text-muted d-block">End Date</small>
-                                                        <strong><?= htmlspecialchars($row['end_date']) ?: '-' ?></strong>
+                                                    <div class="col-md-4">
+                                                        <div class="p-2 rounded" style="background:#f3e5f5">
+                                                            <small class="text-muted d-block" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px">End Date</small>
+                                                            <strong><?= htmlspecialchars($row['end_date']) ?: '-' ?></strong>
+                                                        </div>
                                                     </div>
-                                                    <div class="col-md-9">
-                                                        <small class="text-muted d-block">Description</small>
-                                                        <strong><?= nl2br(htmlspecialchars($row['description'])) ?: '-' ?></strong>
+                                                    <div class="col-md-12">
+                                                        <div class="p-2 rounded" style="background:#e8f5e9">
+                                                            <small class="text-muted d-block" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px">Description</small>
+                                                            <strong><?= nl2br(htmlspecialchars($row['description'])) ?: '-' ?></strong>
                                                     </div>
                                                     <div class="col-12">
                                                         <small class="text-muted d-block mb-1" style="cursor:pointer" onclick="var c=this.nextElementSibling; if(c && c.classList.contains('remarks-container')) expandRemarks(c)">Remarks</small>
+                                                        <?php if (isLoggedIn() && hasPagePermission('nzsupportlist', 'can_update')): ?>
+                                                            <form method="post" class="mb-2">
+                                                                <input type="hidden" name="add_remark_id" value="<?= $row['id'] ?>">
+                                                                <div class="input-group input-group-sm">
+                                                                    <input type="text" name="remark_text" class="form-control" placeholder="Write a remark..." required>
+                                                                    <button type="submit" class="btn btn-outline-primary btn-sm">Add</button>
+                                                                </div>
+                                                            </form>
+                                                        <?php endif; ?>
                                                         <?php
                                                         $rem_res = $conn->query("SELECT * FROM remarks WHERE support_id = {$row['id']} ORDER BY created_at ASC");
                                                         $all_rems = [];
@@ -532,16 +586,8 @@ if (isset($_SESSION['username'])) {
                                                         <?php else: ?>
                                                             <div class="text-muted small mb-2">-</div>
                                                         <?php endif; ?>
-                                                        <?php if (isLoggedIn() && hasPagePermission('nzsupportlist', 'can_update')): ?>
-                                                            <form method="post" class="mt-1">
-                                                                <input type="hidden" name="add_remark_id" value="<?= $row['id'] ?>">
-                                                                <div class="input-group input-group-sm">
-                                                                    <input type="text" name="remark_text" class="form-control" placeholder="Write a remark..." required>
-                                                                    <button type="submit" class="btn btn-outline-primary btn-sm">Add</button>
-                                                                </div>
-                                                            </form>
-                                                        <?php endif; ?>
                                                     </div>
+                                                    <div class="mt-4"></div>
                                                     <?php if (isLoggedIn() && (hasPagePermission('nzsupportlist', 'can_update') || hasPagePermission('nzsupportlist', 'can_delete'))): ?>
                                                     <div class="col-12 d-flex justify-content-between align-items-center">
                                                         <div>
@@ -575,6 +621,13 @@ if (isset($_SESSION['username'])) {
                                                                 <i class="bi bi-printer"></i> Print
                                                             </button>
                                                         </div>
+                                                        <?php if ($_SESSION['username'] === $row['support_person'] || isAdmin()): ?>
+                                                        <div>
+                                                            <a href="https://api.whatsapp.com/send?text=<?= rawurlencode("{$row['sup_id']}\n{$base_url}/ticket.php?id={$row['id']}") ?>" target="_blank" class="btn btn-sm btn-success btn-3d">
+                                                                <i class="bi bi-whatsapp"></i> Share
+                                                            </a>
+                                                        </div>
+                                                        <?php endif; ?>
                                                     </div>
                                                     <?php endif; ?>
                                                 </div>
@@ -678,21 +731,22 @@ if (isset($_SESSION['username'])) {
                                         <input type="text" class="form-control form-control-sm mb-1 user-search" placeholder="&#x1F50D; Search user..." style="position:sticky;top:0;z-index:1;">
                                         <a class="dropdown-item" data-value="">-- Select --</a>
                                         <?php if ($user_registry): foreach ($user_registry as $uname => $udata): ?>
-                                            <a class="dropdown-item" data-value="<?= htmlspecialchars($uname) ?>" data-oid="<?= htmlspecialchars($udata['oid']) ?>" data-desig="<?= htmlspecialchars($udata['designation']) ?>" data-dept="<?= htmlspecialchars($udata['department']) ?>" data-phone="<?= htmlspecialchars($udata['phone']) ?>"><?= htmlspecialchars($uname) ?></a>
+                                            <a class="dropdown-item" data-value="<?= htmlspecialchars($uname) ?>" data-oid="<?= htmlspecialchars($udata['oid']) ?>" data-desig="<?= htmlspecialchars($udata['designation']) ?>" data-dept="<?= htmlspecialchars($udata['department']) ?>" data-phone="<?= htmlspecialchars($udata['phone']) ?>"><?= htmlspecialchars($uname) ?><?= $udata['department'] ? ', ' . htmlspecialchars($udata['department']) : '' ?></a>
                                         <?php endforeach; endif; ?>
                                     </div>
                                 </div>
                                 <div class="user-details mt-2 small" style="display:none">
-                                    <div class="p-2 border rounded bg-light">
+                                    <div class="p-2 border rounded" style="background:#fff;border-color:#0d6efd !important">
+                                        <div class="fw-bold text-primary mb-1" style="font-size:0.7rem;letter-spacing:1px;text-transform:uppercase">USER INFO</div>
                                         <div class="row g-1">
-                                            <div class="col-6"><strong>OID:</strong> <span class="u-oid"></span></div>
-                                            <div class="col-6"><strong>Designation:</strong> <span class="u-desig"></span></div>
-                                            <div class="col-6"><strong>Department:</strong> <span class="u-dept"></span></div>
-                                            <div class="col-6"><strong>Phone:</strong> <span class="u-phone"></span></div>
+                                            <div class="col-6"><span class="text-muted">OID:</span> <strong class="u-oid"></strong></div>
+                                            <div class="col-6"><span class="text-muted">Desig:</span> <strong class="u-desig"></strong></div>
+                                            <div class="col-6"><span class="text-muted">Dept:</span> <strong class="u-dept"></strong></div>
+                                            <div class="col-6"><span class="text-muted">Phone:</span> <strong class="u-phone"></strong></div>
                                         </div>
                                     </div>
                                 </div>
-                                <a href="#" class="small text-muted mt-1 d-inline-block" id="toggleManualInput">Or type manually</a>
+                                <a href="#" class="small text-muted mt-1 d-inline-block toggle-manual-input">Or type manually</a>
                                 <input type="text" class="form-control mt-1 manual-user-name" style="display:none" placeholder="Type user name...">
                                 <a href="#" class="small text-primary mt-1 d-inline-block" data-bs-toggle="modal" data-bs-target="#requestUserModal">Request Admin to Add New User</a>
                             </div>
@@ -782,15 +836,6 @@ if (isset($_SESSION['username'])) {
                                 <label class="form-label">Phone</label>
                                 <input type="text" name="req_phone" class="form-control">
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Support Person</label>
-                                <select name="req_support_person" class="form-select">
-                                    <option value="">-- Select --</option>
-                                    <option value="Bappi">Bappi</option>
-                                    <option value="Nayem">Nayem</option>
-                                    <option value="All IT">All IT</option>
-                                </select>
-                            </div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -802,7 +847,10 @@ if (isset($_SESSION['username'])) {
         </div>
     </div>
 
-    <?php if ($edit_row && isLoggedIn()): ?>
+    <?php if ($edit_row && isLoggedIn()):
+        $edit_known_user = isset($user_registry[$edit_row['user_name']]);
+        $edit_user_data = $edit_known_user ? $user_registry[$edit_row['user_name']] : null;
+    ?>
     <div class="modal fade show" id="editModal" tabindex="-1" style="display:block;background:rgba(0,0,0,.5);">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -830,7 +878,31 @@ if (isset($_SESSION['username'])) {
                                 </div>
                             <div class="col-md-3">
                                 <label class="form-label">User Name</label>
-                                <input type="text" name="user_name" class="form-control" value="<?= htmlspecialchars($edit_row['user_name']) ?>" required>
+                                <div class="user-search-dropdown">
+                                    <input type="text" class="form-control" readonly placeholder="-- Select User --" data-bs-toggle="dropdown" data-bs-auto-close="outside" value="<?= $edit_known_user ? htmlspecialchars($edit_row['user_name']) : '-- Select User --' ?>" style="<?= $edit_known_user ? '' : 'display:none' ?>">
+                                    <input type="hidden" name="user_name" class="user-name-value" value="<?= htmlspecialchars($edit_row['user_name']) ?>">
+                                    <div class="dropdown-menu">
+                                        <input type="text" class="form-control form-control-sm mb-1 user-search" placeholder="&#x1F50D; Search user..." style="position:sticky;top:0;z-index:1;">
+                                        <a class="dropdown-item" data-value="">-- Select --</a>
+                                        <?php if ($user_registry): foreach ($user_registry as $uname => $udata): ?>
+                                            <a class="dropdown-item" data-value="<?= htmlspecialchars($uname) ?>" data-oid="<?= htmlspecialchars($udata['oid']) ?>" data-desig="<?= htmlspecialchars($udata['designation']) ?>" data-dept="<?= htmlspecialchars($udata['department']) ?>" data-phone="<?= htmlspecialchars($udata['phone']) ?>"<?= ($edit_row['user_name'] === $uname) ? ' style="background:#e3f2fd"' : '' ?>><?= htmlspecialchars($uname) ?><?= $udata['department'] ? ', ' . htmlspecialchars($udata['department']) : '' ?></a>
+                                        <?php endforeach; endif; ?>
+                                    </div>
+                                </div>
+                                <div class="user-details mt-2 small" style="display:<?= $edit_known_user ? 'block' : 'none' ?>">
+                                    <div class="p-2 border rounded" style="background:#fff;border-color:#0d6efd !important">
+                                        <div class="fw-bold text-primary mb-1" style="font-size:0.7rem;letter-spacing:1px;text-transform:uppercase">USER INFO</div>
+                                        <div class="row g-1">
+                                            <div class="col-6"><span class="text-muted">OID:</span> <strong class="u-oid"><?= $edit_known_user ? htmlspecialchars($edit_user_data['oid']) : '' ?></strong></div>
+                                            <div class="col-6"><span class="text-muted">Desig:</span> <strong class="u-desig"><?= $edit_known_user ? htmlspecialchars($edit_user_data['designation']) : '' ?></strong></div>
+                                            <div class="col-6"><span class="text-muted">Dept:</span> <strong class="u-dept"><?= $edit_known_user ? htmlspecialchars($edit_user_data['department']) : '' ?></strong></div>
+                                            <div class="col-6"><span class="text-muted">Phone:</span> <strong class="u-phone"><?= $edit_known_user ? htmlspecialchars($edit_user_data['phone']) : '' ?></strong></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <a href="#" class="small text-muted mt-1 d-inline-block toggle-manual-input"><?= $edit_known_user ? 'Or type manually' : 'Select from list' ?></a>
+                                <input type="text" class="form-control mt-1 manual-user-name" style="display:<?= $edit_known_user ? 'none' : '' ?>" placeholder="Type user name..." value="<?= $edit_known_user ? '' : htmlspecialchars($edit_row['user_name']) ?>">
+                                <a href="#" class="small text-primary mt-1 d-inline-block" data-bs-toggle="modal" data-bs-target="#requestUserModal">Request Admin to Add New User</a>
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label">Device</label>
@@ -977,8 +1049,18 @@ if (isset($_SESSION['username'])) {
             hiddenItems.forEach(item => item.classList.remove('d-none'));
             const hint = container.querySelector('.expand-hint');
             if (hint) hint.remove();
-            container.style.cursor = 'default';
         }
+    }
+
+    function copyLink(el, url) {
+        var input = document.createElement('input');
+        input.value = url;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+        el.innerHTML = '<i class="bi bi-check"></i> Copied';
+        setTimeout(function(){ el.innerHTML = '<i class="bi bi-link-45deg"></i>'; }, 2000);
     }
     </script>
     <?php if ($edit_row && isLoggedIn()): ?>
@@ -1004,6 +1086,7 @@ if (isset($_SESSION['username'])) {
         items.forEach(function(item) {
             item.addEventListener('click', function() {
                 highlight(this.dataset.value);
+                bootstrap.Dropdown.getInstance(input).hide();
             });
         });
 
@@ -1028,18 +1111,24 @@ if (isset($_SESSION['username'])) {
         const device = row.cells[3].textContent.trim();
 
         const detailRow = document.querySelector('.detail-row[data-id="' + id + '"]');
-        const supportPerson = detailRow.querySelector('.col-md-3:nth-of-type(1) strong')?.textContent || '-';
-        const startDate = detailRow.querySelector('.col-md-3:nth-of-type(5) strong')?.textContent || '-';
-        const deadline = detailRow.querySelector('.col-md-3:nth-of-type(6) strong')?.textContent || '-';
-        const endDate = detailRow.querySelector('.col-md-3:nth-of-type(9) strong')?.textContent || '-';
-        const description = detailRow.querySelector('.col-md-9 strong')?.textContent || '-';
-        const remainingDaysBadge = detailRow.querySelector('.badge');
-
-        let badgeHtml = '-';
-        if (remainingDaysBadge) {
-            const type = remainingDaysBadge.classList.contains('bg-info') ? 'bg-info' : 'bg-danger';
-            badgeHtml = `<span class="badge ${type}">${remainingDaysBadge.textContent.trim()}</span>`;
+        const detailCols = detailRow.querySelectorAll('.row.g-3 .col-md-4');
+        function getVal(label) {
+            for (let col of detailCols) {
+                let sm = col.querySelector('small.text-muted');
+                if (sm && sm.textContent.trim() === label) {
+                    let strong = col.querySelector('strong');
+                    let badge = col.querySelector('.badge');
+                    return badge ? badge.outerHTML : (strong ? strong.textContent.trim() : '-');
+                }
+            }
+            return '-';
         }
+        const supportPerson = getVal('Support Person');
+        const startDate = getVal('Start Date');
+        const deadline = getVal('Dead Line');
+        const endDate = getVal('End Date');
+        const description = detailRow.querySelector('.col-md-12 strong')?.textContent || '-';
+        const badgeHtml = getVal('Remaining Days');
 
         const remarksHtml = Array.from(detailRow.querySelectorAll('.remark-item')).map(rem => {
             const user = rem.querySelector('strong').textContent;
@@ -1095,7 +1184,7 @@ if (isset($_SESSION['username'])) {
                     @media print { body { padding: 0; } @page { margin: 0.5in; } }
                 </style>
             </head>
-            <body>
+<body style="overflow-x:hidden;">
                 <div class="header"><h1>NZ SUPPORT TICKET</h1><div class="id">Ticket ID: ${supId}</div><hr></div>
                 <table class="summary-table"><tr><th>User Name</th><th>Device</th><th>Status</th></tr><tr><td>${userName}</td><td>${device}</td><td style="color: ${status === 'Complete' ? '#dc3545' : '#0d6efd'}">${status}</td></tr></table>
                 <div class="details-grid"><div class="details-item"><div class="label">Support Person</div><div class="value">${supportPerson}</div></div><div class="details-item"><div class="label">Start Date</div><div class="value">${startDate}</div></div><div class="details-item"><div class="label">Dead Line</div><div class="value">${deadline}</div></div><div class="details-item"><div class="label">Remaining Days</div><div class="value">${badgeHtml}</div></div><div class="details-item"><div class="label">End Date</div><div class="value">${endDate}</div></div><div class="details-item wide"><div class="label">Description</div><div class="value">${description}</div></div></div>
@@ -1118,7 +1207,7 @@ if (isset($_SESSION['username'])) {
     reqModal.show();
     <?php endif; ?>
 
-    // Searchable dropdown for User Name in Add modal
+    // Searchable dropdown for User Name in Add/Edit modal
     document.querySelectorAll('.user-search-dropdown').forEach(function(dd) {
         var input = dd.querySelector('input[data-bs-toggle="dropdown"]');
         var hidden = dd.querySelector('.user-name-value');
@@ -1148,6 +1237,7 @@ if (isset($_SESSION['username'])) {
                 } else {
                     highlight('', null);
                 }
+                bootstrap.Dropdown.getInstance(input).hide();
             });
         });
 
@@ -1156,7 +1246,9 @@ if (isset($_SESSION['username'])) {
                 e.stopPropagation();
                 var q = this.value.toLowerCase().trim();
                 items.forEach(function(item) {
-                    item.style.display = (!q || item.textContent.toLowerCase().indexOf(q) > -1) ? '' : 'none';
+                    var matchName = item.textContent.toLowerCase().indexOf(q) > -1;
+                    var matchOid = item.dataset.oid && item.dataset.oid.toLowerCase().indexOf(q) > -1;
+                    item.style.display = (!q || matchName || matchOid) ? '' : 'none';
                 });
             });
             search.addEventListener('click', function(e) { e.stopPropagation(); });
@@ -1164,33 +1256,38 @@ if (isset($_SESSION['username'])) {
     });
 
     // Toggle manual user name input
-    document.getElementById('toggleManualInput').addEventListener('click', function(e) {
-        e.preventDefault();
-        var container = this.parentElement;
-        var dropdownInput = container.querySelector('input[data-bs-toggle="dropdown"]');
-        var hidden = container.querySelector('.user-name-value');
-        var manualInput = container.querySelector('.manual-user-name');
-        var detailsDiv = container.querySelector('.user-details');
-        if (manualInput.style.display === 'none') {
-            manualInput.style.display = '';
-            dropdownInput.style.display = 'none';
-            detailsDiv.style.display = 'none';
-            if (hidden) hidden.value = '';
-            manualInput.name = 'user_name';
-            this.textContent = 'Select from list';
-        } else {
-            manualInput.style.display = 'none';
-            dropdownInput.style.display = '';
-            manualInput.name = '';
-            this.textContent = 'Or type manually';
-        }
+    document.querySelectorAll('.toggle-manual-input').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            var container = this.parentElement;
+            var dropdownInput = container.querySelector('input[data-bs-toggle="dropdown"]');
+            var hidden = container.querySelector('.user-name-value');
+            var manualInput = container.querySelector('.manual-user-name');
+            var detailsDiv = container.querySelector('.user-details');
+            if (manualInput.style.display === 'none') {
+                manualInput.style.display = '';
+                dropdownInput.style.display = 'none';
+                detailsDiv.style.display = 'none';
+                if (hidden) hidden.value = '';
+                manualInput.name = 'user_name';
+                this.textContent = 'Select from list';
+            } else {
+                manualInput.style.display = 'none';
+                dropdownInput.style.display = '';
+                manualInput.name = '';
+                this.textContent = 'Or type manually';
+            }
+        });
     });
 
     // Sync manual input value with submission
-    document.querySelector('.manual-user-name').addEventListener('input', function() {
-        var hidden = this.parentElement.querySelector('.user-name-value');
-        if (hidden) hidden.value = this.value;
+    document.querySelectorAll('.manual-user-name').forEach(function(inp) {
+        inp.addEventListener('input', function() {
+            var hidden = this.parentElement.querySelector('.user-name-value');
+            if (hidden) hidden.value = this.value;
+        });
     });
     </script>
+    <?php require_once 'footer.php'; ?>
 </body>
 </html>
