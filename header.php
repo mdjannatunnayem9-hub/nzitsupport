@@ -1,6 +1,8 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container">
-        <a class="navbar-brand" href="index.php">NZIT Support</a>
+        <a class="navbar-brand" href="index.php">
+            <img src="NZ Full Logo.png" alt="NZIT Support" height="35">
+        </a>
         <div class="d-flex align-items-center gap-2">
             <?php if (isLoggedIn()): ?>
                 <span class="text-light me-2">

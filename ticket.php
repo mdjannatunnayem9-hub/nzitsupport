@@ -68,6 +68,7 @@ $wa_ticket_link = $base_url . '/ticket.php?id=' . $row['id'];
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ticket <?= htmlspecialchars($row['sup_id']) ?> - NZIT Support</title>
+    <link rel="icon" href="NZ Icon.png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
     <style>
