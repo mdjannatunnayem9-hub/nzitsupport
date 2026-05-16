@@ -1,10 +1,20 @@
 <?php
 session_start();
 
-$host = 'localhost';
-$user = 'root';
-$pass = '';
-$db   = 'nzitsupport';
+// Auto-detect environment
+$is_local = isset($_SERVER['SERVER_NAME']) && ($_SERVER['SERVER_NAME'] === 'localhost' || $_SERVER['SERVER_NAME'] === '127.0.0.1');
+
+if ($is_local) {
+    $host = 'localhost';
+    $user = 'root';
+    $pass = '';
+    $db   = 'nzitsupport';
+} else {
+    $host = 'sql306.infinityfree.com';
+    $user = 'if0_41848546';
+    $pass = 'nayem1999';
+    $db   = 'if0_41848546_nzitsupport';
+}
 
 $conn = new mysqli($host, $user, $pass, $db);
 if ($conn->connect_error) {
