@@ -13,13 +13,13 @@ if ($is_local) {
 } else {
     $host = 'sql306.infinityfree.com';
     $user = 'if0_41848546';
-    $pass = 'nayem1999';
+    $pass = 'NZit2026';
     $db   = 'if0_41848546_nzitsupport';
 }
 
 $conn = @new mysqli($host, $user, $pass, $db);
 if ($conn->connect_error) {
-    $conn = @new mysqli('localhost', 'if0_41848546', 'nayem1999', 'if0_41848546_nzitsupport');
+    $conn = @new mysqli('localhost', 'if0_41848546', 'NZit2026', 'if0_41848546_nzitsupport');
 }
 if ($conn->connect_error) {
     die("<h3>Database Connection Error</h3><p>Please check your database credentials or import db_backup.sql via phpMyAdmin.</p>");
